@@ -18,7 +18,6 @@
 
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <memory>
 #include <optional>
 #include <string>
@@ -281,8 +280,6 @@ absl::Status EmbeddingLookupText::Initialize() {
     }
     signature_key_ = signatures.front().Key();
   }
-
-  std::cout << "\n\n\t\tsignature_key: " << signature_key_.value() << "\n\n";
 
   LITERT_ASSIGN_OR_RETURN(input_buffers_, compiled_model_->CreateInputBuffers(
                                               signature_key_.value()));
