@@ -31,6 +31,7 @@
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/embedding_lookup/embedding_lookup_manager.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
@@ -186,8 +187,9 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
       SortedPrefillSignatureMap prefill_signature_map,
-      std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
-          std::nullopt)
+      std::optional<std::unique_ptr<EmbeddingLookupManager>>
+          embedding_lookup_manager,
+      std::optional<EmbedderPerLayerContext> embedder_per_layer_context)
       : executor_settings_(std::move(executor_settings)),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
@@ -195,6 +197,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
         rope_context_(std::move(rope_context)),
         env_(std::move(llm_env)),
         llm_compiled_model_(std::move(llm_compiled_model)),
+        embedding_lookup_manager_(std::move(embedding_lookup_manager)),
         embedder_per_layer_context_(std::move(embedder_per_layer_context)),
         llm_inference_context_(std::move(llm_inference_context)),
         cache_update_inference_context_(
@@ -307,6 +310,38 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
       const InferenceContext& mask_inference_context,
       const InferenceContext& cache_update_inference_context);
 
+  bool UseEmbeddingLookupManager() const {
+    return embedding_lookup_manager_.has_value();
+  }
+
+  // Allocates the transformer buffers. The buffers will be stored in the
+  // provided output parameters.
+  static absl::Status AllocateTransformerBuffers(
+      litert::Environment& env, const litert::Model* transformer_model,
+      CompiledModel& llm_compiled_model,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          gemma_prefill_input_buffers,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          gemma_decode_input_buffers,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          input_kv_cache_buffers,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          prefill_output_kv_cache_slice_buffers,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          decode_output_kv_cache_slice_buffers);
+
+  // Create the executor for Gemma3n, with multi-modality support.
+  static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
+  CreateForGemma3n(const LlmExecutorSettings& executor_settings,
+                   ModelResources& resources, litert::Environment& env,
+                   const litert::Model* transformer_model);
+
+  // Create the executor for Gemma3.
+  static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
+  CreateForGemma3(const LlmExecutorSettings& executor_settings,
+                  ModelResources& resources, litert::Environment& env,
+                  const litert::Model* transformer_model);
+
   LlmExecutorSettings executor_settings_;
   std::unique_ptr<ModelResources> resources_;
   LatencyStats latency_stats_;
@@ -316,8 +351,9 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
   InferenceContext rope_context_;
   ::litert::Environment env_;
   ::litert::CompiledModel llm_compiled_model_;
-  std::optional<EmbedderPerLayerContext> embedder_per_layer_context_ =
-      std::nullopt;
+  std::optional<std::unique_ptr<EmbeddingLookupManager>>
+      embedding_lookup_manager_;
+  std::optional<EmbedderPerLayerContext> embedder_per_layer_context_;
   InferenceContext llm_inference_context_;
   InferenceContext cache_update_inference_context_;
   SortedPrefillSignatureMap prefill_signature_map_;

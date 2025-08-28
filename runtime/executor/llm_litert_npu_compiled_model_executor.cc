@@ -38,10 +38,12 @@
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/embedding_lookup/embedding_lookup_manager.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -159,6 +161,19 @@ absl::StatusOr<int> ApplyGreedySampling(const TensorBuffer& decoded_logits) {
     }
   }
   return max_index;
+}
+
+// Returns true if the transformer model has a per layer embedder input buffer.
+litert::Expected<bool> HasPerLayerEmbedder(
+    const litert::Model& transformer_model) {
+  LITERT_ASSIGN_OR_RETURN(litert::Signature prefill_signature,
+                          transformer_model.FindSignature(kPrefillSignature));
+  for (auto input_name : prefill_signature.InputNames()) {
+    if (kPerLayerEmbedderTensor == input_name) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -369,6 +384,68 @@ LlmLiteRtNpuCompiledModelExecutor::CreateRopeContextWithBufferSharing(
   return rope_context;
 }
 
+absl::Status LlmLiteRtNpuCompiledModelExecutor::AllocateTransformerBuffers(
+    litert::Environment& env, const litert::Model* transformer_model,
+    CompiledModel& llm_compiled_model,
+    absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+        gemma_prefill_input_buffers,
+    absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+        gemma_decode_input_buffers,
+    absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+        input_kv_cache_buffers,
+    absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+        prefill_output_kv_cache_slice_buffers,
+    absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+        decode_output_kv_cache_slice_buffers) {
+  auto prefill_signature = transformer_model->FindSignature(kPrefillSignature);
+  constexpr absl::string_view kv_cache_k_root_name = "kv_cache_k_";
+  constexpr absl::string_view kv_cache_v_root_name = "kv_cache_v_";
+  constexpr absl::string_view kv_cache_slice_k_root_name = "kv_slice_k_";
+  constexpr absl::string_view kv_cache_slice_v_root_name = "kv_slice_v_";
+
+  for (auto input_name : prefill_signature->InputNames()) {
+    if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
+        absl::StartsWith(input_name, kv_cache_v_root_name)) {
+      LITERT_ASSIGN_OR_RETURN(
+          input_kv_cache_buffers[input_name],
+          llm_compiled_model.CreateInputBuffer(kPrefillSignature, input_name));
+    } else {
+      LITERT_ASSIGN_OR_RETURN(
+          gemma_prefill_input_buffers[input_name],
+          llm_compiled_model.CreateInputBuffer(kPrefillSignature, input_name));
+    }
+  }
+  auto decode_signature = transformer_model->FindSignature(kDecodeSignature);
+  for (auto input_name : decode_signature->InputNames()) {
+    if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
+        absl::StartsWith(input_name, kv_cache_v_root_name)) {
+      continue;
+    }
+    LITERT_ASSIGN_OR_RETURN(
+        gemma_decode_input_buffers[input_name],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, input_name));
+  }
+  for (auto output_name : prefill_signature->OutputNames()) {
+    if (absl::StartsWith(output_name, kv_cache_slice_k_root_name) ||
+        absl::StartsWith(output_name, kv_cache_slice_v_root_name)) {
+      LITERT_ASSIGN_OR_RETURN(
+          prefill_output_kv_cache_slice_buffers[output_name],
+          llm_compiled_model.CreateOutputBuffer(kPrefillSignature,
+                                                output_name));
+    }
+  }
+  for (auto output_name : decode_signature->OutputNames()) {
+    if (absl::StartsWith(output_name, kv_cache_slice_k_root_name) ||
+        absl::StartsWith(output_name, kv_cache_slice_v_root_name)) {
+      LITERT_ASSIGN_OR_RETURN(
+          decode_output_kv_cache_slice_buffers[output_name],
+          llm_compiled_model.CreateOutputBuffer(kDecodeSignature, output_name));
+    }
+  }
+
+  return absl::OkStatus();
+}
+
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateLlmInferenceContextWithBufferSharing(
     ::litert::Environment& env, ::litert::CompiledModel& llm_compiled_model,
@@ -497,18 +574,12 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::WarmupInference(
     const InferenceContext& rope_inference_context,
     const InferenceContext& mask_inference_context,
     const InferenceContext& cache_update_inference_context) {
-  auto result = compiled_model_llm.Run(
-      LlmSignatures::kPrefillLlm, llm_inference_context.prefill_input_buffers,
-      llm_inference_context.prefill_output_buffers);
-  RET_CHECK(result) << "Inference warmup run for Gemma3 (prefill) failed."
-                    << result.Error().Message();
-  result = compiled_model_llm.Run(LlmSignatures::kDecodeLlm,
-                                  llm_inference_context.decode_input_buffers,
-                                  llm_inference_context.decode_output_buffers);
-  RET_CHECK(result) << "Inference warmup run for Gemma3 (decode) failed."
-                    << result.Error().Message();
+  // TODO(b441454184): Add warmup for transformer model if needed, if so check
+  // data type and fill with non-zero values. For now, deliberately not warming
+  // up the transformer model because it has DIV OPs that require 'realistic'
+  // (non-zero) inputs.
 
-  result = compiled_model_auxiliary.Run(
+  auto result = compiled_model_auxiliary.Run(
       RopeSignatures::kPrefillRope,
       rope_inference_context.prefill_input_buffers,
       rope_inference_context.prefill_output_buffers);
@@ -592,6 +663,10 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Prefill(
   RET_CHECK_EQ(tensor_type.Layout().Dimensions()[0], 1);
   RET_CHECK_GT(tensor_type.Layout().Dimensions()[1], 0)
       << "Prefill token ids must be non-empty.";
+  if (UseEmbeddingLookupManager()) {
+    RETURN_IF_ERROR(
+        embedding_lookup_manager_.value()->UpdateMultiModalEmbeddings(inputs));
+  }
   LITERT_ASSIGN_OR_RETURN(auto ids, ReferTensorBufferAsSpan<int32_t>(
                                         *(*inputs.GetTextTokenIdsPtr())));
 
@@ -606,6 +681,10 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Prefill(
   RET_CHECK_EQ(ids.size(), 0).SetCode(absl::StatusCode::kInternal)
       << "Work groups not covering the entire prefill input.";
 
+  if (UseEmbeddingLookupManager()) {
+    RETURN_IF_ERROR(
+        embedding_lookup_manager_.value()->CleanupMultiModalEmbeddings());
+  }
   auto end = absl::Now();
   latency_stats_.prefill_e2e_latency_us +=
       absl::ToInt64Microseconds(end - start);
@@ -641,8 +720,21 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
       absl::ToInt64Microseconds(absl::Now() - start_sample);
 
   // Store the sampled id as the pending input token for next Decode.
-  RETURN_IF_ERROR(processed_tokens_.AddPendingInputToken(
-      std::make_shared<TokenData>(max_index)));
+
+  std::shared_ptr<TokenData> last_output_token =
+      std::make_shared<TokenData>(max_index);
+
+  if (UseEmbeddingLookupManager()) {
+    RETURN_IF_ERROR(embedding_lookup_manager_.value()->LookupDecode(
+        last_output_token->id(), last_output_token->mutable_embedding()));
+  }
+  // For Gemma3 we don't need to do anything here because we invoke
+  // the Embedder before invoking the transformer during prefill/decode. All
+  // we need to do is keep the token id around (which is stored as the pending
+  // token).
+
+  RETURN_IF_ERROR(
+      processed_tokens_.AddPendingInputToken(std::move(last_output_token)));
   ++current_step_;
 
   output_tokens.Write(absl::MakeConstSpan({max_index}));
@@ -713,6 +805,22 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
         processed_tokens_.GetNextUnprocessedToken();
     int input_idx = 0;
     if (pending_input_token != nullptr) {
+      // We'll write any pending embedding directly into the transformer
+      // embedding buffer.
+      if (UseEmbeddingLookupManager()) {
+        LITERT_ASSIGN_OR_RETURN(
+            auto transformer_embedding_buffer_lock_and_addr,
+            ::litert::TensorBufferScopedLock::Create(
+                llm_inference_context_
+                    .prefill_input_buffers[LlmSignatures::kInputEmbeddings],
+                ::litert::TensorBuffer::LockMode::kWrite));
+        float* transformer_embedding_buffer_ptr = static_cast<float*>(
+            transformer_embedding_buffer_lock_and_addr.second);
+        memcpy(transformer_embedding_buffer_ptr,
+               pending_input_token->embedding().data(),
+               pending_input_token->embedding().size() * sizeof(float));
+      }
+
       prefill_input_ptr[input_idx] = pending_input_token->id();
       prefill_input_pos_ptr[input_idx] = internal_start_step;
       RETURN_IF_ERROR(processed_tokens_.MarkPendingInputTokenAsProcessed());
@@ -731,18 +839,45 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
       processed_input_tokens.push_back(ids[i]);
     }
     processed_tokens_.AddProcessedTokens(processed_input_tokens);
+
+    if (UseEmbeddingLookupManager()) {
+      // We use the embedding lookup manager to populate the embedding buffer.
+      // If we already placed a pending input token into the embedding buffer
+      // before, we'll flag that as an offset to the embedding lookup manager.
+      litert::TensorBuffer& embedding_buffer =
+          llm_inference_context_
+              .prefill_input_buffers[LlmSignatures::kInputEmbeddings];
+      RETURN_IF_ERROR(embedding_lookup_manager_.value()->LookupPrefill(
+          processed_input_tokens, &embedding_buffer,
+          pending_input_token != nullptr ? 1 : 0));
+    }
   }
+
+  // Add the last token of the current input as a pending input token, to be
+  // used in the next prefill or decode.
+  std::shared_ptr<TokenData> last_input_token =
+      std::make_shared<TokenData>(ids.back());
+
+  if (UseEmbeddingLookupManager()) {
+    // Look up the embeddings for the last token so they can be used in the next
+    // prefill or decode. This has to be done now in the case of multi-modal
+    // prefill so the embeddings are used in the correct order.
+    RETURN_IF_ERROR(embedding_lookup_manager_.value()->LookupPrefill(
+        last_input_token->id(), last_input_token->mutable_embedding()));
+  }
+
   // Add the last input token to the pending input token list.
-  RETURN_IF_ERROR(processed_tokens_.AddPendingInputToken(
-      std::make_shared<TokenData>(ids.back())));
+  RETURN_IF_ERROR(
+      processed_tokens_.AddPendingInputToken(std::move(last_input_token)));
   ++current_step_;
 
   auto end_prepare_inputs = absl::Now();
   latency_stats_.prefill_prepare_input_latency_us +=
       absl::ToInt64Microseconds(end_prepare_inputs - start_prepare_inputs);
 
-  // Invoke embedder signature.
-  {
+  if (!UseEmbeddingLookupManager()) {
+    // Invoke embedder signature for Gemma3, because we don't have the
+    // embedding lookup manager to do it for us.
     auto start = absl::Now();
     auto res = embedder_context_.embedder_compiled_model.Run(
         EmbedderSignatures::kPrefillEmbedder,
@@ -754,19 +889,17 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
         absl::ToInt64Microseconds(end - start);
   }
 
-  {
-    if (embedder_per_layer_context_.has_value()) {
-      // Invoke embedder per layer signature.
-      auto res =
-          embedder_per_layer_context_->embedder_per_layer_compiled_model.Run(
-              EmbedderPerLayerSignatures::kPrefillEmbedderPerLayer,
-              embedder_per_layer_context_->inference_context
-                  .prefill_input_buffers,
-              embedder_per_layer_context_->inference_context
-                  .prefill_output_buffers);
-      RET_CHECK(res) << "Failed to run embedder per layer model."
-                     << res.Error().Message();
-    }
+  // Invoke embedder per layer signature if it exists.
+  if (embedder_per_layer_context_.has_value()) {
+    auto res =
+        embedder_per_layer_context_->embedder_per_layer_compiled_model.Run(
+            EmbedderPerLayerSignatures::kPrefillEmbedderPerLayer,
+            embedder_per_layer_context_->inference_context
+                .prefill_input_buffers,
+            embedder_per_layer_context_->inference_context
+                .prefill_output_buffers);
+    RET_CHECK(res) << "Failed to run embedder per layer model."
+                   << res.Error().Message();
   }
 
   // Invoke RoPE signature.
@@ -868,17 +1001,36 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::DecodeInternal(
   latency_stats_.decode_prepare_input_latency_us +=
       absl::ToInt64Microseconds(end_prepare_inputs - start_prepare_inputs);
 
-  // Invoke embedder signature.
-  {
-    auto start = absl::Now();
-    auto res = embedder_context_.embedder_compiled_model.Run(
-        EmbedderSignatures::kDecodeEmbedder,
-        embedder_context_.inference_context.decode_input_buffers,
-        embedder_context_.inference_context.decode_output_buffers);
-    RET_CHECK(res) << "Failed to run embedder model." << res.Error().Message();
-    auto end = absl::Now();
-    latency_stats_.decode_embedder_inference_latency_us +=
-        absl::ToInt64Microseconds(end - start);
+  if (!UseEmbeddingLookupManager()) {
+    // Invoke embedder signature for Gemma3, because we don't have the embedding
+    // lookup manager to do it for us.
+    {
+      auto start = absl::Now();
+      auto res = embedder_context_.embedder_compiled_model.Run(
+          EmbedderSignatures::kDecodeEmbedder,
+          embedder_context_.inference_context.decode_input_buffers,
+          embedder_context_.inference_context.decode_output_buffers);
+      RET_CHECK(res) << "Failed to run embedder model."
+                     << res.Error().Message();
+      auto end = absl::Now();
+      latency_stats_.decode_embedder_inference_latency_us +=
+          absl::ToInt64Microseconds(end - start);
+    }
+  }
+
+  if (UseEmbeddingLookupManager()) {
+    // We'll write any pending embedding directly into the transformer
+    // embedding buffer.
+    LITERT_ASSIGN_OR_RETURN(
+        auto transformer_embedding_buffer_lock_and_addr,
+        ::litert::TensorBufferScopedLock::Create(
+            llm_inference_context_
+                .decode_input_buffers[LlmSignatures::kInputEmbeddings],
+            ::litert::TensorBuffer::LockMode::kWrite));
+    float* transformer_embedding_buffer_ptr =
+        static_cast<float*>(transformer_embedding_buffer_lock_and_addr.second);
+    memcpy(transformer_embedding_buffer_ptr, token->embedding().data(),
+           token->embedding().size() * sizeof(float));
   }
 
   {
@@ -989,11 +1141,28 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
       ::litert::Environment::Create(absl::MakeConstSpan(environment_options)));
   ASSIGN_OR_RETURN(const litert::Model* llm_model,
                    resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
+
+  // For the lack of a better way to identify the model variants, we use the
+  // presence of per-layer embeddings as the signal for Gemma3n.
+  LITERT_ASSIGN_OR_RETURN(bool has_per_layer_embeddings,
+                          HasPerLayerEmbedder(*llm_model));
+  const bool IsGemma3n = has_per_layer_embeddings;
+  if (IsGemma3n) {
+    return CreateForGemma3n(executor_settings, resources, env, llm_model);
+  } else {
+    return CreateForGemma3(executor_settings, resources, env, llm_model);
+  }
+};
+
+absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
+LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3n(
+    const LlmExecutorSettings& executor_settings, ModelResources& resources,
+    litert::Environment& env, const litert::Model* transformer_model) {
   // If the model is fully AOT compiled for NPU, NPU accelerator is used
   // automatically.
   LITERT_ASSIGN_OR_RETURN(
       CompiledModel llm_compiled_model,
-      CompiledModel::Create(env, *llm_model, kLiteRtHwAcceleratorCpu));
+      CompiledModel::Create(env, *transformer_model, kLiteRtHwAcceleratorCpu));
 
   // Allocate all input and output buffers of the LLM model that are meant to be
   // used by the NPU chip first, so that we can later duplicate the buffers into
@@ -1009,74 +1178,24 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   absl::flat_hash_map<absl::string_view, TensorBuffer>
       decode_output_kv_cache_slice_buffers;
 
-  auto prefill_signature = llm_model->FindSignature(kPrefillSignature);
-  constexpr absl::string_view kv_cache_k_root_name = "kv_cache_k_";
-  constexpr absl::string_view kv_cache_v_root_name = "kv_cache_v_";
-  constexpr absl::string_view kv_cache_slice_k_root_name = "kv_slice_k_";
-  constexpr absl::string_view kv_cache_slice_v_root_name = "kv_slice_v_";
-
-  bool has_per_layer_embeddings = false;
-
-  for (auto input_name : prefill_signature->InputNames()) {
-    if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
-        absl::StartsWith(input_name, kv_cache_v_root_name)) {
-      LITERT_ASSIGN_OR_RETURN(
-          input_kv_cache_buffers[input_name],
-          llm_compiled_model.CreateInputBuffer(kPrefillSignature, input_name));
-    } else {
-      if (kPerLayerEmbedderTensor == input_name) {
-        has_per_layer_embeddings = true;
-      }
-
-      LITERT_ASSIGN_OR_RETURN(
-          gemma_prefill_input_buffers[input_name],
-          llm_compiled_model.CreateInputBuffer(kPrefillSignature, input_name));
-    }
+  absl::Status allocate_status = AllocateTransformerBuffers(
+      env, transformer_model, llm_compiled_model, gemma_prefill_input_buffers,
+      gemma_decode_input_buffers, input_kv_cache_buffers,
+      prefill_output_kv_cache_slice_buffers,
+      decode_output_kv_cache_slice_buffers);
+  if (!allocate_status.ok()) {
+    return allocate_status;
   }
-  auto decode_signature = llm_model->FindSignature(kDecodeSignature);
-  for (auto input_name : decode_signature->InputNames()) {
-    if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
-        absl::StartsWith(input_name, kv_cache_v_root_name)) {
-      continue;
-    }
-    LITERT_ASSIGN_OR_RETURN(
-        gemma_decode_input_buffers[input_name],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, input_name));
-  }
-  for (auto output_name : prefill_signature->OutputNames()) {
-    if (absl::StartsWith(output_name, kv_cache_slice_k_root_name) ||
-        absl::StartsWith(output_name, kv_cache_slice_v_root_name)) {
-      LITERT_ASSIGN_OR_RETURN(
-          prefill_output_kv_cache_slice_buffers[output_name],
-          llm_compiled_model.CreateOutputBuffer(kPrefillSignature,
-                                                output_name));
-    }
-  }
-  for (auto output_name : decode_signature->OutputNames()) {
-    if (absl::StartsWith(output_name, kv_cache_slice_k_root_name) ||
-        absl::StartsWith(output_name, kv_cache_slice_v_root_name)) {
-      LITERT_ASSIGN_OR_RETURN(
-          decode_output_kv_cache_slice_buffers[output_name],
-          llm_compiled_model.CreateOutputBuffer(kDecodeSignature, output_name));
-    }
-  }
-
-  // For the lack of a better way to identify the model variants, we use the
-  // presence of per-layer embeddings as the signal for Gemma3n.
-  const bool IsGemma3 = !has_per_layer_embeddings;
-  const bool IsGemma3n = has_per_layer_embeddings;
 
   // Gemma3n specific fix: KV cache buffer 19 of *prefill* is not connected
   // to any OPs in the model, making the LiteRT runtime allocate host memory
   // for it. This is incompatible when running the transformer model on the NPU.
-  if (IsGemma3n) {
-    LITERT_ASSIGN_OR_RETURN(
-        input_kv_cache_buffers[cache_k19],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k19));
-    LITERT_ASSIGN_OR_RETURN(
-        input_kv_cache_buffers[cache_v19],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v19));
-  }
+  LITERT_ASSIGN_OR_RETURN(
+      input_kv_cache_buffers[cache_k19],
+      llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k19));
+  LITERT_ASSIGN_OR_RETURN(
+      input_kv_cache_buffers[cache_v19],
+      llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v19));
 
   ASSIGN_OR_RETURN(
       auto llm_inference_context,
@@ -1086,29 +1205,153 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
           decode_output_kv_cache_slice_buffers, gemma_prefill_input_buffers,
           gemma_decode_input_buffers));
 
-  if (IsGemma3) {
-    // Gemma3 specific fix:
-    //
-    // TODO(b/416702118): Buffers kv_cache_{k,v}_25 have float element type for
-    // the prefill signature but int16_t for the decode signature. Therefore,
-    // unlike for the other KV cache tensors, we can not re-use the same tensor
-    // during prefill and decode (because trying to register a tensor of element
-    // type float for the decode signature that expects it in int16_t will
-    // fail). Luckily these buffers are not used, so we can simply create new
-    // ones to satisfy the compiled model run API.  We can remove this
-    // workaround once we have a model that removes these buffers.
-    //
-    // In gemma3n, although these buffers have quantized types, they are not
-    // used in the prefill model, causing the tensor buffer created as host
-    // memory type. We need to use the similar workaround to create new buffers
-    // for decode.
-    LITERT_ASSIGN_OR_RETURN(
-        llm_inference_context.decode_input_buffers[cache_k25],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k25));
-    LITERT_ASSIGN_OR_RETURN(
-        llm_inference_context.decode_input_buffers[cache_v25],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v25));
+  ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
+                   resources.GetTFLiteModel(ModelType::kTfLiteAux));
+
+  ASSIGN_OR_RETURN(auto npu_auxiliary_context,
+                   CreateNpuAuxiliaryContext(env, *npu_auxiliary_lrt_model));
+
+  ASSIGN_OR_RETURN(auto mask_context,
+                   CreateMaskContextWithBufferSharing(
+                       npu_auxiliary_context, gemma_prefill_input_buffers,
+                       gemma_decode_input_buffers));
+
+  ASSIGN_OR_RETURN(auto embedder_lrt_model,
+                   resources.GetTFLiteModel(ModelType::kTfLiteEmbedder));
+  ASSIGN_OR_RETURN(
+      auto embedder_context,
+      CreateEmbedderContextWithBufferSharing(
+          env, *embedder_lrt_model,
+          mask_context.prefill_input_buffers[MaskSignatures::kMaskInputTokens],
+          mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens],
+          gemma_prefill_input_buffers, gemma_decode_input_buffers));
+
+  ASSIGN_OR_RETURN(auto rope_context,
+                   CreateRopeContextWithBufferSharing(
+                       npu_auxiliary_context, gemma_prefill_input_buffers,
+                       gemma_decode_input_buffers));
+
+  // Duplicate the rope's buffers that are used to store the prefill and
+  // decode input position, because they will need to be passed to the
+  // cache update inference context as well.
+  LITERT_ASSIGN_OR_RETURN(
+      ::litert::TensorBuffer prefill_input_pos,
+      rope_context.prefill_input_buffers[RopeSignatures::kInputPos]
+          .Duplicate());
+  LITERT_ASSIGN_OR_RETURN(
+      ::litert::TensorBuffer decode_input_pos,
+      rope_context.decode_input_buffers[RopeSignatures::kInputPos].Duplicate());
+  ASSIGN_OR_RETURN(
+      auto cache_update_inference_context,
+      CreateCacheUpdateInferenceContextWithBufferSharing(
+          input_kv_cache_buffers, prefill_output_kv_cache_slice_buffers,
+          decode_output_kv_cache_slice_buffers, std::move(prefill_input_pos),
+          std::move(decode_input_pos)));
+
+  RETURN_IF_ERROR(WarmupInference(
+      llm_compiled_model, llm_inference_context,
+      npu_auxiliary_context.npu_auxiliary_compiled_model, rope_context,
+      mask_context, cache_update_inference_context));
+
+  // For now we only support one prefill length in the model.
+  SortedPrefillSignatureMap prefill_runner_set;
+  prefill_runner_set[kPrefillSize] = kPrefillSignature;
+
+  absl::flat_hash_map<int, Model*> end_of_multi_modal_embedding_models;
+  absl::StatusOr<const litert::Model*> maybe_end_of_audio_model =
+      resources.GetTFLiteModel(ModelType::kTfLiteEndOfAudio);
+  if (maybe_end_of_audio_model.ok()) {
+    end_of_multi_modal_embedding_models
+        [litert::lm::ExecutorAudioData::kEndToken] =
+            const_cast<Model*>(maybe_end_of_audio_model.value());
   }
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<EmbeddingLookupManager> embedding_lookup_manager,
+      EmbeddingLookupManager::Create(embedder_lrt_model,
+                                     end_of_multi_modal_embedding_models, true,
+                                     "decode_embedder"));
+
+  std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
+      std::nullopt;
+
+  ASSIGN_OR_RETURN(
+      const litert::Model* embedder_per_layer_model,
+      resources.GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder));
+  ASSIGN_OR_RETURN(
+      embedder_per_layer_context,
+      CreateEmbedderPerLayerContextWithBufferSharing(
+          env, *embedder_per_layer_model,
+          mask_context.prefill_input_buffers[MaskSignatures::kMaskInputTokens],
+          mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens],
+          gemma_prefill_input_buffers, gemma_decode_input_buffers));
+
+  auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
+      executor_settings, std::move(embedder_context),
+      std::move(npu_auxiliary_context), std::move(mask_context),
+      std::move(rope_context), std::move(env), std::move(llm_compiled_model),
+      std::move(llm_inference_context),
+      std::move(cache_update_inference_context), std::move(prefill_runner_set),
+      std::move(embedding_lookup_manager),
+      std::move(embedder_per_layer_context)));
+  return executor;
+}
+
+absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
+LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3(
+    const LlmExecutorSettings& executor_settings, ModelResources& resources,
+    litert::Environment& env, const litert::Model* transformer_model) {
+  // If the model is fully AOT compiled for NPU, NPU accelerator is used
+  // automatically.
+  LITERT_ASSIGN_OR_RETURN(
+      CompiledModel llm_compiled_model,
+      CompiledModel::Create(env, *transformer_model, kLiteRtHwAcceleratorCpu));
+
+  // Allocate all input and output buffers of the LLM model that are meant to be
+  // used by the NPU chip first, so that we can later duplicate the buffers into
+  // the output buffer maps of the embedder, mask, and rope signatures.
+
+  absl::flat_hash_map<absl::string_view, TensorBuffer>
+      gemma_prefill_input_buffers;
+  absl::flat_hash_map<absl::string_view, TensorBuffer>
+      gemma_decode_input_buffers;
+  absl::flat_hash_map<absl::string_view, TensorBuffer> input_kv_cache_buffers;
+  absl::flat_hash_map<absl::string_view, TensorBuffer>
+      prefill_output_kv_cache_slice_buffers;
+  absl::flat_hash_map<absl::string_view, TensorBuffer>
+      decode_output_kv_cache_slice_buffers;
+
+  absl::Status allocate_status = AllocateTransformerBuffers(
+      env, transformer_model, llm_compiled_model, gemma_prefill_input_buffers,
+      gemma_decode_input_buffers, input_kv_cache_buffers,
+      prefill_output_kv_cache_slice_buffers,
+      decode_output_kv_cache_slice_buffers);
+  if (!allocate_status.ok()) {
+    return allocate_status;
+  }
+  ASSIGN_OR_RETURN(
+      auto llm_inference_context,
+      CreateLlmInferenceContextWithBufferSharing(
+          env, llm_compiled_model, input_kv_cache_buffers,
+          prefill_output_kv_cache_slice_buffers,
+          decode_output_kv_cache_slice_buffers, gemma_prefill_input_buffers,
+          gemma_decode_input_buffers));
+
+  // Gemma3 specific fix:
+  //
+  // TODO(b/416702118): Buffers kv_cache_{k,v}_25 have float element type for
+  // the prefill signature but int16_t for the decode signature. Therefore,
+  // unlike for the other KV cache tensors, we can not re-use the same tensor
+  // during prefill and decode (because trying to register a tensor of element
+  // type float for the decode signature that expects it in int16_t will
+  // fail). Luckily these buffers are not used, so we can simply create new
+  // ones to satisfy the compiled model run API.  We can remove this
+  // workaround once we have a model that removes these buffers.
+  LITERT_ASSIGN_OR_RETURN(
+      llm_inference_context.decode_input_buffers[cache_k25],
+      llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k25));
+  LITERT_ASSIGN_OR_RETURN(
+      llm_inference_context.decode_input_buffers[cache_v25],
+      llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v25));
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
                    resources.GetTFLiteModel(ModelType::kTfLiteAux));
@@ -1164,28 +1407,15 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
 
   std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
       std::nullopt;
-  if (has_per_layer_embeddings) {
-    ASSIGN_OR_RETURN(
-        const litert::Model* embedder_per_layer_model,
-        resources.GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder));
-    ASSIGN_OR_RETURN(
-        embedder_per_layer_context,
-        CreateEmbedderPerLayerContextWithBufferSharing(
-            env, *embedder_per_layer_model,
-            mask_context
-                .prefill_input_buffers[MaskSignatures::kMaskInputTokens],
-            mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens],
-            gemma_prefill_input_buffers, gemma_decode_input_buffers));
-  }
-
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
       executor_settings, std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
       std::move(rope_context), std::move(env), std::move(llm_compiled_model),
       std::move(llm_inference_context),
       std::move(cache_update_inference_context), std::move(prefill_runner_set),
-      std::move(embedder_per_layer_context)));
+      /*embedding_lookup_manager=*/std::nullopt,
+      /*embedder_per_layer_context=*/std::nullopt));
   return executor;
-};
+}
 
 }  // namespace litert::lm
