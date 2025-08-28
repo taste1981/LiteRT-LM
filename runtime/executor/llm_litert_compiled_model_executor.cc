@@ -659,6 +659,9 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
       // NoExternalTensorsMode.
       gpu_compilation_options.AddExternalTensorPattern("kv_cache_");
       gpu_compilation_options.AddExternalTensorPattern("logits");
+#if defined(LITERT_USE_WEBGPU_ACCELERATOR)
+      gpu_compilation_options.SetGpuBackend(kLiteRtGpuBackendWebGpu);
+#endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
       compilation_options->AddOpaqueOptions(std::move(gpu_compilation_options));
       compilation_options->SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
       break;
