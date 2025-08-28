@@ -179,13 +179,6 @@ BuildModelResourcesFromTaskFormat(std::shared_ptr<ScopedFile> model_file) {
                       kPrefilDecodeModelNameInTaskBundle) != files_list.end())
       << kPrefilDecodeModelNameInTaskBundle
       << " model file not found in task bundle.";
-  ASSIGN_OR_RETURN(absl::string_view buffer,  // NOLINT
-                   resources->GetFile(kPrefilDecodeModelNameInTaskBundle));
-  litert::BufferRef<uint8_t> buffer_ref(buffer.data(), buffer.size());
-
-  Expected<Model> litert_model = Model::CreateFromBuffer(buffer_ref);
-  RET_CHECK(litert_model) << "Failed to build "  // NOLINT
-                          << kPrefilDecodeModelNameInTaskBundle << " model.";
   return ModelResourcesTask::Create(std::move(resources));
 }
 
