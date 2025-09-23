@@ -64,6 +64,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@nlohmann_json//:json",
+        "//runtime/components/tool_use:parser_utils",
         "//runtime/components/tool_use:python_tool_format_utils",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
@@ -79,6 +80,7 @@ cc_test(
     ],
     deps = [
         ":gemma3_data_processor",
+        ":gemma3_data_processor_config",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

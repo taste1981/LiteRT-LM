@@ -198,6 +198,9 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
     std::unique_ptr<Engine::Session> session, std::optional<Preface> preface,
     std::optional<PromptTemplate> prompt_template,
     std::optional<DataProcessorConfig> processor_config) {
+  if (!preface.has_value()) {
+    preface = JsonPreface();
+  }
   // TODO: b/435001805 - Use factory method to create the model data processor.
   if (!processor_config.has_value()) {
     processor_config = Gemma3DataProcessorConfig();
@@ -207,7 +210,7 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
     ASSIGN_OR_RETURN(
         model_data_processor,
         Gemma3DataProcessor::Create(
-            std::get<Gemma3DataProcessorConfig>(*processor_config)));
+            std::get<Gemma3DataProcessorConfig>(*processor_config), preface));
   } else {
     return absl::InvalidArgumentError(
         "Data processor config is not supported yet");
@@ -218,9 +221,6 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
     ABSL_LOG(INFO)
         << "Prompt template is not provided, using default template.";
     prompt_template = PromptTemplate(kDefaultTemplate);
-  }
-  if (!preface.has_value()) {
-    preface = JsonPreface();
   }
   auto conversation = absl::WrapUnique(
       new Conversation(std::move(session), std::move(model_data_processor),

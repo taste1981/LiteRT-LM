@@ -15,7 +15,9 @@
 #include "runtime/conversation/model_data_processor/gemma3_data_processor.h"
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "absl/memory/memory.h"  // from @com_google_absl
@@ -23,6 +25,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/components/tool_use/parser_utils.h"
 #include "runtime/components/tool_use/python_tool_format_utils.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
@@ -32,8 +35,9 @@
 namespace litert::lm {
 
 absl::StatusOr<std::unique_ptr<Gemma3DataProcessor>>
-Gemma3DataProcessor::Create(Gemma3DataProcessorConfig config) {
-  return absl::WrapUnique(new Gemma3DataProcessor(config));
+Gemma3DataProcessor::Create(Gemma3DataProcessorConfig config,
+                            std::optional<Preface> preface) {
+  return absl::WrapUnique(new Gemma3DataProcessor(config, preface));
 }
 
 absl::StatusOr<std::vector<InputData>>
@@ -68,10 +72,20 @@ absl::StatusOr<Message> Gemma3DataProcessor::ToMessageImpl(
     const Responses& responses, const Gemma3DataProcessorArguments& args) {
   ASSIGN_OR_RETURN(absl::string_view response_text,
                    responses.GetResponseTextAt(0));
+  nlohmann::ordered_json content;
+  if (preface_.has_value() && std::holds_alternative<JsonPreface>(*preface_) &&
+      !std::get<JsonPreface>(*preface_).tools.empty()) {
+    ASSIGN_OR_RETURN(
+        content, ParseTextAndToolCalls(
+                     response_text, config_.code_fence_start,
+                     config_.code_fence_end, GetSyntaxType(config_.syntax_type),
+                     config_.escape_fence_strings, config_.tool_code_regex));
+  } else {
+    content = nlohmann::ordered_json::array(
+        {{{"type", "text"}, {"text", std::string(response_text)}}});
+  }
   return nlohmann::ordered_json::object(
-      {{"role", "assistant"},
-       {"content",
-        {{{"type", "text"}, {"text", std::string(response_text)}}}}});
+      {{"role", "assistant"}, {"content", content}});
 }
 
 absl::StatusOr<nlohmann::ordered_json> Gemma3DataProcessor::FormatTools(

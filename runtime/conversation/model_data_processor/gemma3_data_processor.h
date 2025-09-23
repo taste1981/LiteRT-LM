@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_GEMMA3_DATA_PROCESSOR_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,7 +36,8 @@ class Gemma3DataProcessor
  public:
   // Creates a Gemma3DataProcessor instance.
   static absl::StatusOr<std::unique_ptr<Gemma3DataProcessor>> Create(
-      Gemma3DataProcessorConfig config = Gemma3DataProcessorConfig());
+      Gemma3DataProcessorConfig config = Gemma3DataProcessorConfig(),
+      std::optional<Preface> preface = std::nullopt);
 
   // Returns the config of the Gemma3DataProcessor.
   const Gemma3DataProcessorConfig& GetConfig() override { return config_; }
@@ -46,8 +48,10 @@ class Gemma3DataProcessor
 
  private:
   explicit Gemma3DataProcessor(
-      const Gemma3DataProcessorConfig& config = Gemma3DataProcessorConfig())
-      : config_(config) {};
+      const Gemma3DataProcessorConfig& config = Gemma3DataProcessorConfig(),
+      std::optional<Preface> preface = std::nullopt)
+      : config_(config), preface_(preface) {};
+
   absl::StatusOr<std::vector<InputData>> ToInputDataVectorImpl(
       const std::string& rendered_template_prompt,
       const nlohmann::ordered_json& messages,
@@ -58,6 +62,7 @@ class Gemma3DataProcessor
       const Gemma3DataProcessorArguments& args) override;
 
   Gemma3DataProcessorConfig config_;
+  std::optional<Preface> preface_;
 };
 
 }  // namespace litert::lm

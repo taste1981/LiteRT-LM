@@ -46,6 +46,8 @@ class ModelDataProcessor {
   virtual absl::StatusOr<Message> ToMessage(
       const Responses& responses, const DataProcessorArguments& args) = 0;
 
+  // Formats the provided tools to be inserted into the system/developer
+  // instruction of the prompt.
   virtual absl::StatusOr<nlohmann::ordered_json> FormatTools(
       const nlohmann::ordered_json& tools) = 0;
 };

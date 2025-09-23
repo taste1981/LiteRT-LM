@@ -45,3 +45,104 @@ cc_test(
         "//runtime/util:test_utils",
     ],
 )
+
+cc_library(
+    name = "parser_common",
+    srcs = ["parser_common.cc"],
+    hdrs = ["parser_common.h"],
+    deps = [
+        "@com_google_absl//absl/strings",
+        "@antlr4//:cpp",
+    ],
+)
+
+cc_test(
+    name = "parser_common_test",
+    srcs = ["parser_common_test.cc"],
+    deps = [
+        ":parser_common",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "python_parser_utils",
+    srcs = ["python_parser_utils.cc"],
+    hdrs = ["python_parser_utils.h"],
+    deps = [
+        ":parser_common",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@nlohmann_json//:json",
+        "//runtime/components/tool_use/antlr:antlr_python_tool_call_parser",
+    ],
+)
+
+cc_test(
+    name = "python_parser_utils_test",
+    srcs = ["python_parser_utils_test.cc"],
+    deps = [
+        ":python_parser_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@nlohmann_json//:json",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
+    name = "json_parser_utils",
+    srcs = ["json_parser_utils.cc"],
+    hdrs = ["json_parser_utils.h"],
+    deps = [
+        ":parser_common",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@nlohmann_json//:json",
+        "//runtime/components/tool_use/antlr:antlr_json_tool_call_parser",
+    ],
+)
+
+cc_test(
+    name = "json_parser_utils_test",
+    srcs = ["json_parser_utils_test.cc"],
+    deps = [
+        ":json_parser_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@nlohmann_json//:json",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
+    name = "parser_utils",
+    srcs = ["parser_utils.cc"],
+    hdrs = ["parser_utils.h"],
+    deps = [
+        ":json_parser_utils",
+        ":python_parser_utils",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@nlohmann_json//:json",
+        "@com_googlesource_code_re2//:re2",
+    ],
+)
+
+cc_test(
+    name = "parser_utils_test",
+    srcs = ["parser_utils_test.cc"],
+    deps = [
+        ":parser_utils",
+        "@com_google_googletest//:gtest_main",
+        "@nlohmann_json//:json",
+        "//runtime/util:test_utils",
+    ],
+)

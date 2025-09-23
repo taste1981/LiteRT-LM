@@ -30,6 +30,7 @@
 #include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "runtime/components/prompt_template.h"
 #include "runtime/conversation/io_types.h"
+#include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
@@ -132,6 +133,44 @@ TEST(Gemma3DataProcessorTest, ToMessage) {
       json_message,
       json({{"role", "assistant"},
             {"content", {{{"type", "text"}, {"text", "test response"}}}}}));
+}
+
+TEST(Gemma3DataProcessorTest, ToMessageWithToolCall) {
+  Gemma3DataProcessorConfig config;
+  JsonPreface preface{.tools = nlohmann::ordered_json::parse(
+                          R"json([{
+                            "name": "tool_name",
+                            "parameters": {
+                              "properties": {
+                                "x": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }])json")};
+
+  ASSERT_OK_AND_ASSIGN(auto processor,
+                       Gemma3DataProcessor::Create(config, preface));
+  Responses responses(1);
+  responses.GetMutableResponseTexts()[0] = R"(This is some text.
+```tool_code
+tool_name(x=1)
+```)";
+
+  ASSERT_OK_AND_ASSIGN(const Message message,
+                       processor->ToMessage(responses, std::monostate{}));
+
+  ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message));
+  const nlohmann::ordered_json& json_message =
+      std::get<nlohmann::ordered_json>(message);
+  EXPECT_EQ(json_message,
+            nlohmann::ordered_json(
+                {{"role", "assistant"},
+                 {"content",
+                  {{{"type", "text"}, {"text", "This is some text.\n"}},
+                   {{"type", "tool_call"},
+                    {"tool_call",
+                     {{"name", "tool_name"}, {"args", {{"x", 1}}}}}}}}}));
 }
 
 TEST(Gemma3DataProcessorTest, PromptTemplateToInputDataVectorTextOnly) {

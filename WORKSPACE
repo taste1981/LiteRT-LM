@@ -13,7 +13,7 @@ TENSORFLOW_SHA256 = "f67de8c5db765f11ffb7ef28bac151398e46f76c74b3d5c156bc894ec54
 
 # buildifier: disable=load-on-top
 
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_jar")
 
 http_archive(
     name = "rules_shell",
@@ -331,6 +331,48 @@ http_archive(
     sha256 = "119b9f3cca3e50225dc946ed1acd1b7a160943bc8bf549760109cea4e4e7c836",
     strip_prefix = "stb-f58f558c120e9b32c217290b80bad1a0729fbb2c",
     urls = ["https://github.com/nothings/stb/archive/f58f558c120e9b32c217290b80bad1a0729fbb2c.zip"],
+)
+
+http_archive(
+    name = "rules_antlr",
+    sha256 = "26e6a83c665cf6c1093b628b3a749071322f0f70305d12ede30909695ed85591",
+    strip_prefix = "rules_antlr-0.5.0",
+    urls = ["https://github.com/marcohu/rules_antlr/archive/0.5.0.tar.gz"],
+)
+
+http_jar(
+    name = "antlr4_tool",
+    url = "https://jcenter.bintray.com/org/antlr/antlr4/4.13.2/antlr4-4.13.2.jar",
+)
+
+http_jar(
+    name = "javax_json",
+    sha256 = "0e1dec40a1ede965941251eda968aeee052cc4f50378bc316cc48e8159bdbeb4",
+    url = "https://jcenter.bintray.com/org/glassfish/javax.json/1.0.4/javax.json-1.0.4.jar",
+)
+
+http_jar(
+    name = "stringtemplate4",
+    sha256 = "58caabc40c9f74b0b5993fd868e0f64a50c0759094e6a251aaafad98edfc7a3b",
+    url = "https://jcenter.bintray.com/org/antlr/ST4/4.0.8/ST4-4.0.8.jar",
+)
+
+http_jar(
+    name = "antlr3_runtime",
+    sha256 = "ce3fc8ecb10f39e9a3cddcbb2ce350d272d9cd3d0b1e18e6fe73c3b9389c8734",
+    url = "https://jcenter.bintray.com/org/antlr/antlr-runtime/3.5.2/antlr-runtime-3.5.2.jar",
+)
+
+http_jar(
+    name = "antlr4_runtime",
+    url = "https://repo1.maven.org/maven2/org/antlr/antlr4-runtime/4.13.2/antlr4-runtime-4.13.2.jar",
+)
+
+http_archive(
+    name = "antlr4",
+    build_file = "@//:BUILD.antlr4",
+    strip_prefix = "antlr4-bd8f9930d053ec6a83e7d751e8c6f69138957665",
+    urls = ["https://github.com/antlr/antlr4/archive/bd8f9930d053ec6a83e7d751e8c6f69138957665.tar.gz"],
 )
 
 # Android rules. Need latest rules_android_ndk to use NDK 26+.

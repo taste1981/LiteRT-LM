@@ -31,6 +31,13 @@ struct Gemma3DataProcessorConfig {
   std::string image_token = "<image_soft_token>";
   // The string for end of image token.
   std::string eoi_token = "<end_of_image>";
+
+  // Tool call parsing configuration.
+  std::string code_fence_start = "```tool_code\n";
+  std::string code_fence_end = "\n```";
+  std::string syntax_type = "python";
+  bool escape_fence_strings = true;
+  std::string tool_code_regex = "";
 };
 
 // Arguments for Gemma3DataProcessor.
