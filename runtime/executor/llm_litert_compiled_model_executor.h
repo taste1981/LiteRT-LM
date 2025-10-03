@@ -175,8 +175,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   //
   // Signature names are unique across all signatures in a model so it is safe
   // to refer to them by just their unique name.
-  absl::flat_hash_set<absl::string_view>
-      prefill_signatures_with_created_buffers_;
+  absl::flat_hash_set<std::string> prefill_signatures_with_created_buffers_;
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
       prefill_input_buffers_;
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
