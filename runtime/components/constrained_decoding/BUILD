@@ -44,3 +44,37 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
     ],
 )
+
+cc_library(
+    name = "constrained_decoder",
+    srcs = ["constrained_decoder.cc"],
+    hdrs = ["constrained_decoder.h"],
+    deps = [
+        ":constraint",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/types:span",
+        "//runtime/util:convert_tensor_buffer",
+        "//runtime/util:litert_status_util",
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_macros",
+            "@litert//litert/cc:litert_model",
+            "@litert//litert/cc:litert_tensor_buffer",
+        ],
+    }),
+)
+
+cc_library(
+    name = "fake_constraint",
+    srcs = ["fake_constraint.cc"],
+    hdrs = ["fake_constraint.h"],
+    deps = [
+        ":bitmap",
+        ":constraint",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)

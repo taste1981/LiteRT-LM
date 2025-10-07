@@ -25,11 +25,10 @@ namespace litert::lm {
 
 // The constraint provider is used to create constraints. The provider should be
 // maintained by the engine across multiple sessions of the same model.
-// TODO(b/447689171): consider replacing the shared_ptr with unique_ptr.
 class ConstraintProvider {
  public:
   // Creates a constraint from the given regex.
-  virtual absl::StatusOr<std::shared_ptr<Constraint>> CreateConstraint(
+  virtual absl::StatusOr<std::unique_ptr<Constraint>> CreateConstraint(
       absl::string_view) const = 0;
 
   virtual ~ConstraintProvider() = default;

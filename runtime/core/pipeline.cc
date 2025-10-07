@@ -34,6 +34,8 @@
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/constrained_decoding/constrained_decoder.h"
+#include "runtime/components/constrained_decoding/constraint.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/scoring_cpu_util.h"
 #include "runtime/components/stop_token_detector.h"
@@ -93,13 +95,18 @@ class DecodeOneStep {
                 Tokenizer* absl_nonnull tokenizer, int num_output_candidates,
                 const StopTokenDetector& stop_token_detector,
                 std::optional<BenchmarkInfo>& benchmark_info,
-                std::optional<Sampler*> sampler)
+                std::optional<Sampler*> sampler,
+                std::optional<Constraint*> constraint)
       : executor_(*executor),
         tokenizer_(*tokenizer),
         num_output_candidates_(num_output_candidates),
         sampler_(sampler),
         benchmark_info_(benchmark_info),
         stop_token_detector_(stop_token_detector) {
+    if (constraint.has_value() && constraint.value() != nullptr) {
+      constrained_decoder_.emplace(std::make_unique<ConstrainedDecoder>(
+          constraint.value(), num_output_candidates_));
+    }
     if (!sampler_.has_value()) {  // Internal sampling setup
       auto output_tokens = CreateTensorBuffer<int>({num_output_candidates_, 1});
       output_tokens_ = std::move(*output_tokens);
@@ -236,6 +243,14 @@ class DecodeOneStep {
                               decoded_ids.value()->Duplicate());
       ExecutorInputs inputs(ExecutorTextData(std::move(duplicate_decoded_ids)),
                             std::nullopt, std::nullopt);
+      // Update constraint state based on the current token id before the
+      // decode.
+      if (constrained_decoder_.has_value()) {
+        LITERT_ASSIGN_OR_RETURN(auto last_token_ids,
+                                decoded_ids.value()->Duplicate());
+        RETURN_IF_ERROR(constrained_decoder_.value()->UpdateConstraintState(
+            last_token_ids));
+      }
       // Decoding section.
       if (benchmark_info_.has_value()) {
         RETURN_IF_ERROR(benchmark_info_->TimeMarkDelta("executor_decode"));
@@ -243,6 +258,12 @@ class DecodeOneStep {
       ASSIGN_OR_RETURN(auto output_logits, executor_.DecodeLogits(inputs));
       if (benchmark_info_.has_value()) {
         RETURN_IF_ERROR(benchmark_info_->TimeMarkDelta("executor_decode"));
+      }
+      // If constrained decoding is enabled, masks the logits based on the
+      // constraint state.
+      if (constrained_decoder_.has_value()) {
+        RETURN_IF_ERROR(
+            constrained_decoder_.value()->MaskLogits(output_logits));
       }
 
       // Samping section.
@@ -275,6 +296,7 @@ class DecodeOneStep {
   Tokenizer& tokenizer_;
   const int num_output_candidates_;
   std::optional<Sampler*> sampler_;
+  std::optional<std::unique_ptr<ConstrainedDecoder>> constrained_decoder_;
   std::optional<BenchmarkInfo> benchmark_info_;
   StopTokenDetector stop_token_detector_;
 
@@ -297,7 +319,7 @@ absl::StatusOr<Responses> DecodeLoop(
     LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     std::optional<BenchmarkInfo>& benchmark_info,
-    std::optional<Sampler*> sampler,
+    std::optional<Sampler*> sampler, std::optional<Constraint*> constraint,
     std::optional<litert::TensorBuffer*> decoded_ids,
     std::optional<std::unique_ptr<InferenceCallbacks>> callbacks,
     std::atomic<bool>* cancelled) {
@@ -318,7 +340,8 @@ absl::StatusOr<Responses> DecodeLoop(
   int num_decode_steps = 0;
   const int max_num_tokens = TryGetMaxNumTokens(executor);
   DecodeOneStep run_one_step(&executor, &tokenizer, num_output_candidates,
-                             stop_token_detector, benchmark_info, sampler);
+                             stop_token_detector, benchmark_info, sampler,
+                             constraint);
   while (true) {
     if (cancelled != nullptr && cancelled->load()) {
       if (is_streaming) {
@@ -414,7 +437,8 @@ absl::StatusOr<Responses> ScoreCustomSampling(
   DecodeOneStep run_one_step(&executor, &tokenizer,
                              /*num_output_candidates=*/num_output_candidates,
                              dummy_stop_token_detector, benchmark_info,
-                             /*sampler=*/std::nullopt);
+                             /*sampler=*/std::nullopt,
+                             /*constraint=*/nullptr);
   std::vector<std::vector<int>> ids_for_each_target_in_batch;
   ids_for_each_target_in_batch.reserve(target_texts.size());
   int max_num_tokens_of_target_texts = 0;
@@ -504,9 +528,10 @@ absl::StatusOr<Responses> Decode(LlmExecutor& executor, Tokenizer& tokenizer,
                                  std::optional<BenchmarkInfo>& benchmark_info,
                                  std::atomic<bool>* cancelled) {
   const int num_output_candidates = 1;
-  return DecodeLoop(executor, tokenizer, stop_token_detector,
-                    num_output_candidates, benchmark_info, std::nullopt,
-                    std::nullopt, std::nullopt, cancelled);
+  return DecodeLoop(
+      executor, tokenizer, stop_token_detector, num_output_candidates,
+      benchmark_info, /*sampler=*/std::nullopt, /*constraint=*/std::nullopt,
+      /*decoded_ids=*/std::nullopt, /*callbacks=*/std::nullopt, cancelled);
 }
 
 absl::Status DecodeStreaming(LlmExecutor& executor, Tokenizer& tokenizer,
@@ -520,8 +545,10 @@ absl::Status DecodeStreaming(LlmExecutor& executor, Tokenizer& tokenizer,
   }
   const int num_output_candidates = 1;
   return DecodeLoop(executor, tokenizer, stop_token_detector,
-                    num_output_candidates, benchmark_info, std::nullopt,
-                    std::nullopt, std::move(callbacks), cancelled)
+                    num_output_candidates, benchmark_info,
+                    /*sampler=*/std::nullopt, /*constraint=*/std::nullopt,
+                    /*decoded_ids=*/std::nullopt, std::move(callbacks),
+                    cancelled)
       .status();
 }
 
@@ -529,17 +556,19 @@ absl::StatusOr<Responses> DecodeCustomSampling(
     LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     Sampler& sampler, litert::TensorBuffer& decoded_ids,
+    std::optional<Constraint*> constraint,
     std::optional<BenchmarkInfo>& benchmark_info,
     std::atomic<bool>* cancelled) {
   return DecodeLoop(executor, tokenizer, stop_token_detector,
-                    num_output_candidates, benchmark_info, &sampler,
-                    &decoded_ids, std::nullopt, cancelled);
+                    num_output_candidates, benchmark_info, &sampler, constraint,
+                    &decoded_ids, /*callbacks=*/std::nullopt, cancelled);
 }
 
 absl::Status DecodeCustomSamplingStreaming(
     LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     Sampler& sampler, litert::TensorBuffer& decoded_ids,
+    std::optional<Constraint*> constraint,
     std::optional<BenchmarkInfo>& benchmark_info,
     std::unique_ptr<InferenceCallbacks> callbacks,
     std::atomic<bool>* cancelled) {
@@ -548,7 +577,7 @@ absl::Status DecodeCustomSamplingStreaming(
         "Callbacks must not be null for streaming.");
   }
   return DecodeLoop(executor, tokenizer, stop_token_detector,
-                    num_output_candidates, benchmark_info, &sampler,
+                    num_output_candidates, benchmark_info, &sampler, constraint,
                     &decoded_ids, std::move(callbacks), cancelled)
       .status();
 }

@@ -558,11 +558,13 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal() {
                                  last_prefill_token_id_);
     auto decoded_ids_buffer = CopyToTensorBuffer<int>(
         decoded_ids, {session_config_.GetNumOutputCandidates(), 1});
-    ASSIGN_OR_RETURN(auto responses,
-                     DecodeCustomSampling(
-                         executor_, tokenizer_, stop_token_detector_,
-                         /*num_output_candidates=*/1, *sampler_,
-                         *decoded_ids_buffer, benchmark_info_, &cancelled_));
+    ASSIGN_OR_RETURN(
+        auto responses,
+        DecodeCustomSampling(executor_, tokenizer_, stop_token_detector_,
+                             /*num_output_candidates=*/1, *sampler_,
+                             *decoded_ids_buffer,
+                             /*constraint=*/std::make_optional(nullptr),
+                             benchmark_info_, &cancelled_));
     return responses;
   }
 }
@@ -581,7 +583,8 @@ absl::Status SessionBasic::DecodeInternalStreaming(
     RETURN_IF_ERROR(DecodeCustomSamplingStreaming(
         executor_, tokenizer_, stop_token_detector_,
         /*num_output_candidates=*/1, *sampler_, *decoded_ids_buffer,
-        benchmark_info_, std::move(callbacks), &cancelled_));
+        /*constraint=*/std::make_optional(nullptr), benchmark_info_,
+        std::move(callbacks), &cancelled_));
   }
   return absl::OkStatus();
 }

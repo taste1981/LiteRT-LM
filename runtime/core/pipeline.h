@@ -26,6 +26,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/constrained_decoding/constraint.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
@@ -79,6 +80,7 @@ absl::Status DecodeStreaming(LlmExecutor& executor, Tokenizer& tokenizer,
 // - stop_token_ids: The token ids to stop the decoding process.
 // - num_output_candidates: The number of output candidates to generate.
 // - sampler: The sampler to sample the token ids from the logits.
+// - constraint: The constraint to constrain the decoding process.
 // - decoded_ids: The decoded token ids from the external sampling process.
 //   The supported shape is [num_output_candidates, 1].
 // - benchmark_info: The benchmark info to record the performance metrics.
@@ -88,6 +90,7 @@ absl::StatusOr<Responses> DecodeCustomSampling(
     LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     Sampler& sampler, litert::TensorBuffer& decoded_ids,
+    std::optional<Constraint*> constraint,
     std::optional<BenchmarkInfo>& benchmark_info,
     std::atomic<bool>* cancelled = nullptr);
 
@@ -101,6 +104,7 @@ absl::Status DecodeCustomSamplingStreaming(
     LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     Sampler& sampler, litert::TensorBuffer& decoded_ids,
+    std::optional<Constraint*> constraint,
     std::optional<BenchmarkInfo>& benchmark_info,
     std::unique_ptr<InferenceCallbacks> callbacks,
     std::atomic<bool>* cancelled = nullptr);

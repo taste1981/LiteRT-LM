@@ -27,7 +27,6 @@ namespace litert::lm {
 // be maintained by the executor during decoding.
 
 // A constraint is always created by the ConstraintProvider.
-// TODO(b/447689171): consider replacing the shared_ptr with unique_ptr.
 class Constraint {
  public:
   // The state of the constraint.
@@ -36,14 +35,17 @@ class Constraint {
   virtual ~Constraint() = default;
 
   // Gets the start state of the constraint.
-  virtual std::shared_ptr<State> Start() const = 0;
+  virtual std::unique_ptr<State> Start() const = 0;
 
   // Returns true if the constraint is at the end state.
   virtual bool IsEnded(const State& state) const = 0;
 
+  // Gets the vocabulary size of the constraint.
+  virtual int GetVocabularySize() const = 0;
+
   // Computes the next state given the current state and the latest decoded
   // token.
-  virtual absl::StatusOr<std::shared_ptr<State>> ComputeNext(
+  virtual absl::StatusOr<std::unique_ptr<State>> ComputeNext(
       const State& state, int token) const = 0;
 
   // Computes the allowed tokens bitmap given the current state.
