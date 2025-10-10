@@ -206,4 +206,18 @@ absl::Status Conversation::SendMessageStream(
   return absl::OkStatus();
 };
 
+absl::StatusOr<BenchmarkInfo> Conversation::GetBenchmarkInfo() {
+  return session_->GetBenchmarkInfo();
+}
+
+void Conversation::CancelProcess() {
+  session_->CancelProcess();
+  // TODO(b/450903294) - Ideally we should check whether cancel take affect, and
+  // if yes, we should rollback history, but currently there is no such info
+  // from Session. Here we just pop the last message, assuming cancellation is
+  // successful.
+  absl::MutexLock lock(&history_mutex_);  // NOLINT
+  history_.pop_back();
+}
+
 }  // namespace litert::lm

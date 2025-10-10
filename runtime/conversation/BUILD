@@ -115,6 +115,7 @@ cc_test(
         "//runtime/core:session_factory",
         "//runtime/engine:engine_interface",
         "//runtime/engine:engine_settings",
+        "//runtime/engine:io_types",
         "//runtime/engine:litert_lm_lib",
         "//runtime/executor:executor_settings_base",
         "//runtime/util:test_utils",
