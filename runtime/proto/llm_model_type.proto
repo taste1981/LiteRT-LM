@@ -26,6 +26,7 @@ message LlmModelType {
     GenericModel generic_model = 1;
     Gemma3N gemma3n = 2;
     Gemma3 gemma3 = 4;
+    Qwen3 qwen3 = 5;
   }
 }
 
@@ -53,3 +54,6 @@ message Gemma3N {
 
 // Google's Gemma3 model.
 message Gemma3 {}
+
+// Qwen3 model.
+message Qwen3 {}

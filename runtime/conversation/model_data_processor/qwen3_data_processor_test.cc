@@ -1,0 +1,85 @@
+// Copyright 2025 The ODML Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "runtime/conversation/model_data_processor/qwen3_data_processor.h"
+
+#include <string>
+#include <variant>
+#include <vector>
+
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
+#include "runtime/conversation/io_types.h"
+#include "runtime/engine/io_types.h"
+#include "runtime/util/test_utils.h"  // NOLINT
+
+namespace litert::lm {
+namespace {
+
+using json = nlohmann::ordered_json;
+using ::testing::ElementsAre;
+
+MATCHER_P(HasInputText, text_input, "") {
+  if (!std::holds_alternative<InputText>(arg)) {
+    return false;
+  }
+  auto text_bytes = std::get<InputText>(arg).GetRawTextString();
+  if (!text_bytes.ok()) {
+    return false;
+  }
+  return text_bytes.value() == text_input->GetRawTextString().value();
+}
+
+TEST(Qwen3DataProcessorTest, ToInputDataVector) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Qwen3DataProcessor::Create());
+  const std::string rendered_template_prompt =
+      "<im_start>user\ntest "
+      "prompt\n<im_end>\n<im_start>assistant\ntest "
+      "response\n<im_end>";
+  const nlohmann::ordered_json messages = {
+      {"role", "user"},
+      {"content", "test prompt"},
+      {"role", "assistant"},
+      {"content", "test response"},
+  };
+  ASSERT_OK_AND_ASSIGN(
+      const std::vector<InputData> input_data,
+      processor->ToInputDataVector(rendered_template_prompt, messages, {}));
+
+  InputText expected_text(
+      "<im_start>user\ntest "
+      "prompt\n<im_end>\n<im_start>assistant\ntest "
+      "response\n<im_end>");
+  EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text)));
+}
+
+TEST(Qwen3DataProcessorTest, ToMessageDefault) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Qwen3DataProcessor::Create());
+  Responses responses(1);
+  responses.GetMutableResponseTexts()[0] = "test response";
+  ASSERT_OK_AND_ASSIGN(const Message message,
+                       processor->ToMessage(responses, std::monostate{}));
+
+  ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message));
+  const nlohmann::ordered_json& json_message =
+      std::get<nlohmann::ordered_json>(message);
+  EXPECT_EQ(
+      json_message,
+      json({{"role", "assistant"},
+            {"content", {{{"type", "text"}, {"text", "test response"}}}}}));
+}
+
+}  // namespace
+}  // namespace litert::lm

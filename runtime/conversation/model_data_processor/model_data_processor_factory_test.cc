@@ -24,6 +24,7 @@
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/generic_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
+#include "runtime/conversation/model_data_processor/qwen3_data_processor_config.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/util/status_macros.h"  // NOLINT
@@ -80,6 +81,26 @@ TEST(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
   ASSERT_OK_AND_ASSIGN(processor, CreateModelDataProcessor(llm_model_type));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          Gemma3DataProcessorArguments()));
+}
+
+TEST(ModelDataProcessorFactoryTest, CreateQwen3ModelDataProcessor) {
+  proto::LlmModelType llm_model_type;
+  llm_model_type.mutable_qwen3();
+  ASSERT_OK_AND_ASSIGN(auto processor,
+                       CreateModelDataProcessor(llm_model_type));
+  EXPECT_OK(processor->ToInputDataVector("test prompt", {},
+                                         Qwen3DataProcessorArguments()));
+  EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
+                                           Gemma3DataProcessorArguments()),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+
+  Responses responses(1);
+  responses.GetMutableResponseTexts()[0] = "test response";
+  EXPECT_OK(processor->ToMessage(responses, Qwen3DataProcessorArguments()));
+
+  EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
+                                           Gemma3DataProcessorArguments()),
+              StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
 }  // namespace
