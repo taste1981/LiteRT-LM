@@ -74,6 +74,15 @@ sealed class Content {
     }
   }
 
+  /** Image provided by a file. */
+  data class ImageFile(val absolutePath: String) : Content() {
+    override fun toJson(): JSONObject {
+      return JSONObject()
+        .put("type", "image")
+        .put("path", absolutePath)
+    }
+  }
+
   /** Audio provided as raw bytes. */
   data class AudioBytes(val bytes: ByteArray) : Content() {
     override fun toJson(): JSONObject {
@@ -82,5 +91,13 @@ sealed class Content {
         .put("blob", Base64.encodeToString(bytes, Base64.DEFAULT))
     }
   }
-  // TODO(b/447439217): Add more ways to construct contents, e.g., by file, url.
+
+  /** Audio provided by a file. */
+  data class AudioFile(val absolutePath: String) : Content() {
+    override fun toJson(): JSONObject {
+      return JSONObject()
+        .put("type", "audio")
+        .put("path", absolutePath)
+    }
+  }
 }
