@@ -64,8 +64,8 @@ Currently supported models during our Preview (as `.litertlm` format).
 Model       | Quantization      | Context size | Model Size (Mb) | Download link
 :---------- | :---------------: | :----------: | :-------------: | :-----------:
 Gemma3-1B   | 4-bit per-channel | 4096         | 557             | [download](https://huggingface.co/litert-community/Gemma3-1B-IT/blob/main/Gemma3-1B-IT_multi-prefill-seq_q4_ekv4096.litertlm)
-Gemma3n-E2B | 4-bit per-channel | 4096         | 2965            | [download](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm-preview)
-Gemma3n-E4B | 4-bit per-channel | 4096         | 4235            | [download](https://huggingface.co/google/gemma-3n-E4B-it-litert-lm-preview)
+Gemma-3n-E2B | 4-bit per-channel | 4096         | 2965            | [download](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm-preview)
+Gemma-3n-E4B | 4-bit per-channel | 4096         | 4235            | [download](https://huggingface.co/google/gemma-3n-E4B-it-litert-lm-preview)
 phi-4-mini  | 8-bit per-channel | 4096         | 3728            | [download](https://huggingface.co/litert-community/Phi-4-mini-instruct/resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.litertlm)
 qwen2.5-1.5b| 8-bit per-channel | 4096         | 1524            | [download](https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm)
 
@@ -79,12 +79,12 @@ with performance lock on Android devices).
 | Gemma3-1B | Samsung S24<br>(Ultra) | CPU | 243.24 | 43.56 | 4096 |
 | Gemma3-1B | Samsung S24<br>(Ultra) | GPU | 1876.5 | 44.57 | 4096 |
 | Gemma3-1B | Samsung S25<br>(Ultra) | NPU | 5836.6 | 84.8 | 1280 |
-| Gemma3n-E2B | MacBook Pro<br>(2023 M3) | CPU | 232.5 | 27.6 | 4096 |
-| Gemma3n-E2B | Samsung S24<br>(Ultra) | CPU | 110.5 | 16.1 | 4096 |
-| Gemma3n-E2B | Samsung S24<br>(Ultra) | GPU | 816.4 | 15.6 | 4096 |
-| Gemma3n-E4B | MacBook Pro<br>(2023 M3) | CPU | 170.1 | 20.1 | 4096 |
-| Gemma3n-E4B | Samsung S24<br>(Ultra) | CPU | 73.5 | 9.2 | 4096 |
-| Gemma3n-E4B | Samsung S24<br>(Ultra) | GPU | 548.0 | 9.4 | 4096 |
+| Gemma-3n-E2B | MacBook Pro<br>(2023 M3) | CPU | 232.5 | 27.6 | 4096 |
+| Gemma-3n-E2B | Samsung S24<br>(Ultra) | CPU | 110.5 | 16.1 | 4096 |
+| Gemma-3n-E2B | Samsung S24<br>(Ultra) | GPU | 816.4 | 15.6 | 4096 |
+| Gemma-3n-E4B | MacBook Pro<br>(2023 M3) | CPU | 170.1 | 20.1 | 4096 |
+| Gemma-3n-E4B | Samsung S24<br>(Ultra) | CPU | 73.5 | 9.2 | 4096 |
+| Gemma-3n-E4B | Samsung S24<br>(Ultra) | GPU | 548.0 | 9.4 | 4096 |
 
 ## Quick Start <span id="quick_start"></span>
 
@@ -110,9 +110,9 @@ Tip: For more functionality, use `lit --help` or `lit <command> --help`
 Tip: Follow this [link](https://huggingface.co/docs/hub/en/security-tokens) to
 get your own hugging face token
 
-Tip: you may have to explicitly approve the usage of pre-built binaries. For
-example, in MacOS, you should go to **System Settings > Privacy & Security >
-Security** to approve the binary.
+Tip: you may have to `chmod +x lit` and explicitly approve the usage of
+pre-built binaries. For example, in MacOS, you should go to **System Settings >
+Privacy & Security > Security** to approve the binary.
 
 ### Mobile Apps
 
@@ -610,7 +610,7 @@ depending on the multimodality to be used.
 
 ```cpp
 // Create engine with proper multimodality backend, depending on which backend
-// the model support. Note for Gemma3N models, vision_backend must be GPU and
+// the model support. Note for Gemma-3N models, vision_backend must be GPU and
 // audio_backend must be CPU.
 auto engine_settings = EngineSettings::CreateDefault(
     model_assets,
