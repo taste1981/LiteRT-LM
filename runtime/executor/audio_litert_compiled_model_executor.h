@@ -17,12 +17,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
@@ -89,81 +92,198 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   // the AudioLiteRtCompiledModelExecutor instead.
   class AudioEncoder {
    public:
-    // Create an AudioEncoder to run audio encoder LiteRT CompiledModel.
-    // Args:
-    //   - env: The LiteRT environment.
-    //   - model: The audio encoder model.
-    // Returns:
-    //   A unique pointer to the AudioEncoder if successful, or an error status
-    //   if failed.
-    static absl::StatusOr<std::unique_ptr<AudioEncoder>> Create(
-        const AudioExecutorSettings& executor_settings, Environment& env,
-        const Model* absl_nonnull model);
+    virtual ~AudioEncoder() = default;
 
-    // Initialize the AudioEncoder, which will create the input and output
-    // buffers for the audio encoder model.
-    absl::Status Initialize();
+    virtual absl::Status Initialize() = 0;
+
+    virtual absl::Status ClearInputBuffers() = 0;
+
+    virtual absl::Status Reset() = 0;
 
     const CompiledModel& GetCompiledModel() const { return compiled_model_; }
 
     CompiledModel& GetMutableCompiledModel() { return compiled_model_; }
 
-    const std::vector<TensorBuffer>& GetInputBuffers() const {
-      return input_buffers_;
+    const absl::flat_hash_map<absl::string_view, TensorBuffer>&
+    GetInputBuffersMap() const {
+      return input_buffers_map_;
     }
 
-    std::vector<TensorBuffer>& GetMutableInputBuffers() {
-      return input_buffers_;
+    absl::flat_hash_map<absl::string_view, TensorBuffer>&
+    GetMutableInputBuffersMap() {
+      return input_buffers_map_;
     }
 
-    const std::vector<TensorBuffer>& GetOutputBuffers() const {
-      return output_buffers_;
+    const absl::flat_hash_map<absl::string_view, TensorBuffer>&
+    GetOutputBuffersMap() const {
+      return output_buffers_map_;
     }
 
-    std::vector<TensorBuffer>& GetMutableOutputBuffers() {
-      return output_buffers_;
+    absl::flat_hash_map<absl::string_view, TensorBuffer>&
+    GetMutableOutputBuffersMap() {
+      return output_buffers_map_;
     }
-
-    const TensorBuffer& GetSpectrogramBuffer() const {
-      return *spectrogram_buffer_;
-    }
-
-    TensorBuffer& GetMutableSpectrogramBuffer() { return *spectrogram_buffer_; }
 
     const TensorBuffer& GetInputMaskBuffer() const {
       return *input_mask_buffer_;
     }
 
-    TensorBuffer& GetMutableInputMaskBuffer() const {
-      return *input_mask_buffer_;
+    TensorBuffer& GetMutableInputMaskBuffer() { return *input_mask_buffer_; }
+
+    const TensorBuffer& GetInputSpectrogramBuffer() const {
+      return *spectrogram_buffer_;
+    }
+
+    TensorBuffer& GetMutableInputSpectrogramBuffer() {
+      return *spectrogram_buffer_;
     }
 
     const TensorBuffer& GetOutputMaskBuffer() const {
       return *output_mask_buffer_;
     }
+
     TensorBuffer& GetMutableOutputMaskBuffer() { return *output_mask_buffer_; }
 
-    absl::Status ClearInputBuffers();
+    const TensorBuffer& GetOutputFeaturesBuffer() const {
+      return *output_features_buffer_;
+    }
+
+    TensorBuffer& GetMutableOutputFeaturesBuffer() {
+      return *output_features_buffer_;
+    }
+
+   protected:
+    CompiledModel compiled_model_;
+
+    // The input buffer for the spectrogram mask.
+    TensorBuffer* input_mask_buffer_;
+    // The input buffer for the spectrogram tensor.
+    TensorBuffer* spectrogram_buffer_;
+    // The output buffer for the valid tokens mask.
+    TensorBuffer* output_mask_buffer_;
+    // The output buffer for the features.
+    TensorBuffer* output_features_buffer_;
+
+    // The input names for the audio encoder model.
+    std::vector<std::string> input_names_;
+
+    // The output names for the audio encoder model.
+    std::vector<std::string> output_names_;
+
+    // The input buffers map for the audio encoder model.
+    absl::flat_hash_map<absl::string_view, TensorBuffer> input_buffers_map_;
+    // The output buffers map for the audio encoder model.
+    absl::flat_hash_map<absl::string_view, TensorBuffer> output_buffers_map_;
+  };
+
+  // Audio Encoder for static LiteRT model, where the whole audio is provided at
+  // once.
+  class AudioStaticEncoder : public AudioEncoder {
+   public:
+    // Create an AudioStaticEncoder to run audio static encoder LiteRT
+    // CompiledModel.
+    // Args:
+    //   - env: The LiteRT environment.
+    //   - model: The audio encoder model.
+    // Returns:
+    //   A unique pointer to the AudioStaticEncoder if successful, or an error
+    //   status if failed.
+    static absl::StatusOr<std::unique_ptr<AudioStaticEncoder>> Create(
+        const AudioExecutorSettings& executor_settings, Environment& env,
+        const Model* absl_nonnull model);
+
+    // Initialize the AudioStaticEncoder, which will create the input and output
+    // buffers for the audio encoder model.
+    absl::Status Initialize() override;
+
+    absl::Status ClearInputBuffers() override;
+
+    absl::Status Reset() override { return ClearInputBuffers(); }
 
    private:
-    AudioEncoder(const AudioExecutorSettings& executor_settings,
-                 Environment& env, const Model* absl_nonnull model)
+    AudioStaticEncoder(const AudioExecutorSettings& executor_settings,
+                       Environment& env, const Model* absl_nonnull model)
         : executor_settings_(executor_settings), env_(env), model_(*model) {}
 
     const AudioExecutorSettings& executor_settings_;
     Environment& env_;
     const Model& model_;
-    CompiledModel compiled_model_;
-    // The input buffers for the audio encoder model.
-    std::vector<TensorBuffer> input_buffers_;
-    // The input buffer for the spectrogram tensor.
-    TensorBuffer* spectrogram_buffer_;
-    // The input buffer for the spectrogram mask.
-    TensorBuffer* input_mask_buffer_;
-    // The output buffer for the valid tokens mask.
-    TensorBuffer* output_mask_buffer_;
-    // The output buffers for the audio encoder model.
-    std::vector<TensorBuffer> output_buffers_;
+  };
+
+  // Audio Encoder for streaming LiteRT model, where the audio is provided in
+  // streaming fashion.
+  //
+  // For streaming audio encoder model, the input buffers map contains two
+  // parts:
+  // 1. The inputs from the new audio segment. It includes
+  //  - segment_values: The spectrogram segment.
+  //  - segment_mask: The spectrogram mask.
+  // 2. The inputs from the internal state. It includes
+  //  - prev_features: The previous features.
+  //  - prev_mask: The previous mask.
+  //  - prev_conv_out_mask: The previous conv out mask.
+  //  and for each transformer layer (12 layers for gemma3n):
+  //    - prev_q_{layer_idx}: The previous q tensor.
+  //    - prev_k_{layer_idx}: The previous k tensor.
+  //    - prev_v_{layer_idx}: The previous v tensor.
+  //    - conv_padding_{layer_idx}: The conv padding.
+  //  and for each subsample layer (2 layers for gemma3n):
+  //  - feature_states_{layer_idx}: The feature states.
+  //
+  // For streaming audio encoder model, the output buffers map contains two
+  // parts:
+  // 1. The outputs from the new audio segment. It includes
+  //  - features: The features.
+  //  - mask: The valid tokens mask.
+  // 2. The outputs from the internal state, and are used for next round of
+  //    input. It includes
+  //  - prev_features: The previous features.
+  //  - prev_mask: The previous mask.
+  //  - prev_conv_out_mask: The previous conv out mask.
+  //  and for each transformer layer (12 layers for gemma3n):
+  //    - prev_q_{layer_idx}: The previous q tensor.
+  //    - prev_k_{layer_idx}: The previous k tensor.
+  //    - prev_v_{layer_idx}: The previous v tensor.
+  //    - conv_padding_{layer_idx}: The conv padding.
+  //  and for each subsample layer (2 layers for gemma3n):
+  //  -
+  class AudioStreamingEncoder : public AudioEncoder {
+   public:
+    // Create an AudioStreamingEncoder to run audio streaming encoder LiteRT
+    // CompiledModel.
+    // Args:
+    //   - env: The LiteRT environment.
+    //   - model: The audio encoder model.
+    // Returns:
+    //   A unique pointer to the AudioStreamingEncoder if successful, or an
+    //   error status if failed.
+    static absl::StatusOr<std::unique_ptr<AudioStreamingEncoder>> Create(
+        const AudioExecutorSettings& executor_settings, Environment& env,
+        const Model* absl_nonnull model);
+
+    // Initialize the AudioStreamingEncoder, which will create the input and
+    // output buffers for the audio encoder model.
+    absl::Status Initialize() override;
+
+    int GetOverlapSize() const { return overlap_size_; }
+
+    // Swap the internal state buffers between input and output buffers map, so
+    // the previous state will be used for the current state.
+    void SwapInternalStateBuffers();
+
+    absl::Status ClearInputBuffers() override;
+
+    absl::Status Reset() override;
+
+   private:
+    AudioStreamingEncoder(const AudioExecutorSettings& executor_settings,
+                          Environment& env, const Model* absl_nonnull model)
+        : executor_settings_(executor_settings), env_(env), model_(*model) {}
+
+    const AudioExecutorSettings& executor_settings_;
+    Environment& env_;
+    const Model& model_;
+    int overlap_size_;
   };
 
   // The Audio Adapter LiteRT CompiledModel wrapper manage the input and
@@ -240,11 +360,12 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
       std::unique_ptr<AudioEncoder> audio_encoder,
       std::unique_ptr<AudioAdapter> audio_adapter, int sequence_length,
       int spectrogram_feature_dimensions, int audio_embedding_dimensions,
-      int encoder_shrinking_factor)
+      int encoder_shrinking_factor, bool is_streaming)
       : sequence_length_(sequence_length),
         spectrogram_feature_dimensions_(spectrogram_feature_dimensions),
         audio_embedding_dimensions_(audio_embedding_dimensions),
         encoder_shrinking_factor_(encoder_shrinking_factor),
+        is_streaming_(is_streaming),
         executor_settings_(std::move(executor_settings)),
         env_(env),
         resources_(std::move(resources)),
@@ -268,6 +389,7 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   int spectrogram_feature_dimensions_;
   int audio_embedding_dimensions_;
   int encoder_shrinking_factor_;
+  bool is_streaming_;
   AudioExecutorSettings executor_settings_;
   /// The LiteRT environment.
   Environment& env_;
