@@ -19,6 +19,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonPrimitive
+import kotlin.reflect.KParameter
 import kotlin.reflect.full.functions
 
 /**
@@ -68,8 +69,13 @@ annotation class ToolParam(val description: String)
  *
  * @property instance The instance of the class containing the tool function.
  * @property kFunction The Kotlin function to be executed as a tool.
+ * @property useSnakeCase Whether to use snake case for function and param names for tool calling.
  */
-internal class Tooling(val instance: Any, val kFunction: kotlin.reflect.KFunction<*>) {
+internal class Tooling(
+  val instance: Any,
+  val kFunction: kotlin.reflect.KFunction<*>,
+  val useSnakeCase: Boolean,
+) {
 
   companion object {
     private val javaTypeToJsonTypeString =
@@ -81,6 +87,10 @@ internal class Tooling(val instance: Any, val kFunction: kotlin.reflect.KFunctio
         Double::class to "number",
         List::class to "array",
       )
+  }
+
+  private fun KParameter.toModelParamName(): String {
+    return if (useSnakeCase) this.name!!.camelToSnakeCase() else this.name!!
   }
 
   /**
@@ -96,12 +106,12 @@ internal class Tooling(val instance: Any, val kFunction: kotlin.reflect.KFunctio
         .associateWith { param ->
           when {
             param.index == 0 -> instance // First parameter is the instance
-            param.name != null && params.has(param.name) -> {
-              val value = params.get(param.name!!)
+            param.name != null && params.has(param.toModelParamName()) -> {
+              val value = params.get(param.toModelParamName())
               convertJsonValueToKotlinValue(value, param.type)
             }
-            param.isOptional -> null // Use default value
-            else -> throw IllegalArgumentException("Missing parameter: ${param.name}")
+            param.isOptional -> null // Should not be reached
+            else -> throw IllegalArgumentException("Missing parameter: ${param.toModelParamName()}")
           }
         }
         .filterValues { it != null }
@@ -182,13 +192,13 @@ internal class Tooling(val instance: Any, val kFunction: kotlin.reflect.KFunctio
       // add "description" if provided
       paramAnnotation?.description?.let { paramJsonSchema.addProperty("description", it) }
       paramJsonSchema.addProperty("nullable", param.type.isMarkedNullable)
-      properties.add(param.name!!, paramJsonSchema)
+      properties.add(param.toModelParamName(), paramJsonSchema)
     }
 
     val requiredParams = JsonArray()
     for (param in parameters) {
       if (!param.isOptional) {
-        requiredParams.add(param.name)
+        requiredParams.add(param.toModelParamName())
       }
     }
 
@@ -201,7 +211,8 @@ internal class Tooling(val instance: Any, val kFunction: kotlin.reflect.KFunctio
 
     val openApiSpec =
       JsonObject().apply {
-        addProperty("name", kFunction.name)
+        val funcName = if (useSnakeCase) kFunction.name.camelToSnakeCase() else kFunction.name
+        addProperty("name", funcName)
         addProperty("description", description)
         add("parameters", schema)
       }
@@ -217,13 +228,20 @@ internal class Tooling(val instance: Any, val kFunction: kotlin.reflect.KFunctio
  * @property toolSets A list of objects, where each object contains methods annotated with @Tool.
  */
 class ToolManager(val toolSets: List<Any>) {
+
+  @OptIn(ExperimentalApi::class)
+  private val useSnakeCase = ExperimentalFlags.convertCamelToSnakeCaseInToolDescription
+
   private val tools: Map<String, Tooling> =
     toolSets
       .flatMap { toolSet ->
         val toolClass = toolSet.javaClass.kotlin
         toolClass.functions
           .filter { function -> function.annotations.any { annotation -> annotation is Tool } }
-          .map { function -> function.name to Tooling(toolSet, function) }
+          .map { function ->
+            (if (useSnakeCase) function.name.camelToSnakeCase() else function.name) to
+              Tooling(toolSet, function, useSnakeCase)
+          }
       }
       .toMap()
 
@@ -285,4 +303,12 @@ class ToolManager(val toolSets: List<Any>) {
       else -> JsonPrimitive(kValue.toString())
     }
   }
+}
+
+private fun String.camelToSnakeCase(): String {
+  return this.replace(Regex("(?<=[a-zA-Z])[A-Z]")) { "_${it.value}" }.lowercase()
+}
+
+private fun String.snakeToCamelCase(): String {
+  return Regex("_([a-z])").replace(this) { it.value.substring(1).uppercase() }
 }

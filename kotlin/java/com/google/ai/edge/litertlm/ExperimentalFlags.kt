@@ -40,6 +40,26 @@ object ExperimentalFlags {
    * affect any existing [Conversation] instances.
    */
   var forceDisableConversationConstrainedDecoding: Boolean = false
+
+  /**
+   * Whether to convert the function and parameter names in to snake case for tool calling.
+   *
+   * Kotlin idiomatic style uses camelCase for names. However, many large language models are
+   * predominantly trained on datasets where snake_case is common.
+   *
+   * By default, this API converts Kotlin camelCase names to snake_case to potentially improve tool
+   * calling performance with models more familiar with snake_case.
+   *
+   * While the choice between snake_case and camelCase often has minimal impact, it can be
+   * significant for smaller, fine-tuned models that were trained exclusively with one convention.
+   *
+   * Set this flag to `false` if your model is specifically trained with camelCase tool descriptions
+   * to skip the conversion. Otherwise, the default of `true` (using snake_case) is recommended.
+   *
+   * Note: This flag is read only when a new [Conversation] is created. Changing this value will not
+   * affect any existing [Conversation] instances.
+   */
+  var convertCamelToSnakeCaseInToolDescription: Boolean = true
 }
 
 // Mark this annotation itself as requiring opt-in
