@@ -24,7 +24,6 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_compiled_model.h"  // from @litert
-#include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/lora.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -40,15 +39,11 @@ namespace litert::lm {
 class LoraManager {
  public:
   // Args:
-  // model: The litert::Model object, containing the model LoRA input signature
-  // information. litert::Model is used as a signature Metadata for creating
-  // CompiledModel, but we have no way to get litert::Model from CompiledModel,
-  // and no way to get signature list directly from CompiledModel. Thus, we need
-  // to pass litert::Model in separately.
   // compiled_model: The CompiledModel object containing model and environment
   // information. It is used for creating backend resources for model buffers.
+  // It also contains the LoRA input signature information
   static absl::StatusOr<std::unique_ptr<LoraManager>> Create(
-      const litert::Model& model, const litert::CompiledModel& compiled_model);
+      const litert::CompiledModel& compiled_model);
 
   // Returns the current LoRA ID.
   std::optional<uint32_t> GetCurrentLoRAId() const { return current_lora_id_; }
@@ -70,10 +65,8 @@ class LoraManager {
   GetLoRABuffers() const;
 
  private:
-  LoraManager(const litert::Model& model,
-              const litert::CompiledModel& compiled_model);
+  explicit LoraManager(const litert::CompiledModel& compiled_model);
 
-  const litert::Model& model_;
   const litert::CompiledModel& compiled_model_;
 
   absl::flat_hash_map<uint32_t, std::unique_ptr<LoraData>> lora_data_;

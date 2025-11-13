@@ -69,12 +69,6 @@ class LoraManagerTest : public ::testing::Test {
     LITERT_ASSERT_OK_AND_ASSIGN(auto env, litert::Environment::Create({}));
     env_ = std::make_unique<Environment>(std::move(env));
 
-    // Create Model.
-    LITERT_ASSERT_OK_AND_ASSIGN(auto model,
-                                Model::CreateFromFile(GetModelFilePath()));
-    model_ = std::make_unique<Model>(std::move(model));
-    ASSERT_TRUE(*model_);
-
     LITERT_ASSERT_OK_AND_ASSIGN(Options compilation_options,
                                 litert::Options::Create());
 
@@ -83,17 +77,15 @@ class LoraManagerTest : public ::testing::Test {
     // Create CompiledModel.
     LITERT_ASSERT_OK_AND_ASSIGN(
         auto compiled_model,
-        CompiledModel::Create(*env_, *model_, compilation_options));
+        CompiledModel::Create(*env_, GetModelFilePath(), compilation_options));
     compiled_model_ =
         std::make_unique<CompiledModel>(std::move(compiled_model));
     ASSERT_TRUE(*compiled_model_);
 
-    ASSERT_OK_AND_ASSIGN(lora_manager_,
-                         LoraManager::Create(*model_, *compiled_model_));
+    ASSERT_OK_AND_ASSIGN(lora_manager_, LoraManager::Create(*compiled_model_));
   }
 
   std::unique_ptr<Environment> env_;
-  std::unique_ptr<Model> model_;
   std::unique_ptr<CompiledModel> compiled_model_;
   std::unique_ptr<LoraManager> lora_manager_;
 };

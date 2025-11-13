@@ -30,10 +30,9 @@ constexpr char kDecodeSignatureRunner[] = "decode";
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<LoRA>> LoRA::Create(
-    std::unique_ptr<LoraData> lora_data, const litert::Model& model,
+    std::unique_ptr<LoraData> lora_data,
     const litert::CompiledModel& compiled_model) {
-  auto lora =
-      absl::WrapUnique(new LoRA(std::move(lora_data), model, compiled_model));
+  auto lora = absl::WrapUnique(new LoRA(std::move(lora_data), compiled_model));
   RETURN_IF_ERROR(lora->Init());
   return lora;
 }
@@ -41,7 +40,8 @@ absl::StatusOr<std::unique_ptr<LoRA>> LoRA::Create(
 absl::Status LoRA::Init() {
   // Get the input names from the default signature.
   LITERT_ASSIGN_OR_RETURN(
-      auto input_names, model_.GetSignatureInputNames(kDecodeSignatureRunner));
+      auto input_names,
+      compiled_model_.GetSignatureInputNames(kDecodeSignatureRunner));
 
   for (const auto& input_name : input_names) {
     if (!IsLoRAInputName(input_name)) {

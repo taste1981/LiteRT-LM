@@ -62,12 +62,6 @@ class LoraTest : public ::testing::Test {
     LITERT_ASSERT_OK_AND_ASSIGN(auto env, litert::Environment::Create({}));
     env_ = std::make_unique<Environment>(std::move(env));
 
-    // Create Model.
-    LITERT_ASSERT_OK_AND_ASSIGN(auto model,
-                                Model::CreateFromFile(GetModelFilePath()));
-    model_ = std::make_unique<Model>(std::move(model));
-    ASSERT_TRUE(*model_);
-
     LITERT_ASSERT_OK_AND_ASSIGN(Options compilation_options,
                                 litert::Options::Create());
 
@@ -76,7 +70,7 @@ class LoraTest : public ::testing::Test {
     // Create CompiledModel.
     LITERT_ASSERT_OK_AND_ASSIGN(
         auto compiled_model,
-        CompiledModel::Create(*env_, *model_, compilation_options));
+        CompiledModel::Create(*env_, GetModelFilePath(), compilation_options));
     compiled_model_ =
         std::make_unique<CompiledModel>(std::move(compiled_model));
     ASSERT_TRUE(*compiled_model_);
@@ -86,18 +80,17 @@ class LoraTest : public ::testing::Test {
   }
 
   std::unique_ptr<Environment> env_;
-  std::unique_ptr<Model> model_;
   std::unique_ptr<CompiledModel> compiled_model_;
   std::unique_ptr<LoraData> lora_data_;
 };
 
 TEST_F(LoraTest, CreateLoRASuccess) {
-  EXPECT_OK(LoRA::Create(std::move(lora_data_), *model_, *compiled_model_));
+  EXPECT_OK(LoRA::Create(std::move(lora_data_), *compiled_model_));
 }
 
 TEST_F(LoraTest, GetLoRABufferSuccess) {
-  ASSERT_OK_AND_ASSIGN(auto lora, LoRA::Create(std::move(lora_data_), *model_,
-                                               *compiled_model_));
+  ASSERT_OK_AND_ASSIGN(auto lora,
+                       LoRA::Create(std::move(lora_data_), *compiled_model_));
   ASSERT_OK_AND_ASSIGN(auto buffer,
                        lora->GetLoRABuffer("query_w_prime_left_20"));
 
@@ -118,8 +111,8 @@ TEST_F(LoraTest, GetLoRABufferSuccess) {
 }
 
 TEST_F(LoraTest, GetLoRABufferReturnsZerosForNoData) {
-  ASSERT_OK_AND_ASSIGN(auto lora, LoRA::Create(std::move(lora_data_), *model_,
-                                               *compiled_model_));
+  ASSERT_OK_AND_ASSIGN(auto lora,
+                       LoRA::Create(std::move(lora_data_), *compiled_model_));
   // Test lora doesn't have k/v for layer > 20.
   ASSERT_OK_AND_ASSIGN(auto buffer,
                        lora->GetLoRABuffer("value_w_prime_left_20"));
@@ -139,15 +132,15 @@ TEST_F(LoraTest, GetLoRABufferReturnsZerosForNoData) {
 }
 
 TEST_F(LoraTest, GetLoRABufferReturnsErrorForUnknownTensor) {
-  ASSERT_OK_AND_ASSIGN(auto lora, LoRA::Create(std::move(lora_data_), *model_,
-                                               *compiled_model_));
+  ASSERT_OK_AND_ASSIGN(auto lora,
+                       LoRA::Create(std::move(lora_data_), *compiled_model_));
   EXPECT_THAT(lora->GetLoRABuffer("unknown_tensor"),
               StatusIs(absl::StatusCode::kNotFound));
 }
 
 TEST_F(LoraTest, GetLoRABuffersSuccess) {
-  ASSERT_OK_AND_ASSIGN(auto lora, LoRA::Create(std::move(lora_data_), *model_,
-                                               *compiled_model_));
+  ASSERT_OK_AND_ASSIGN(auto lora,
+                       LoRA::Create(std::move(lora_data_), *compiled_model_));
   ASSERT_OK_AND_ASSIGN(auto buffers, lora->GetLoRABuffers());
 
   // There are 280 LoRA tensors in the model.

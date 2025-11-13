@@ -42,17 +42,12 @@ class LoRA {
   // Creates and initializes a LoRA object.
   //
   // @param lora_data The LoraData object containing the LoRA weights.
-  // @param model The litert::Model object, containing the model LoRA input
-  // signature information. litert::Model is used as a signature Metadata for
-  // creating CompiledModel, but we have no way to get litert::Model from
-  // CompiledModel, and no way to get signature list directly from
-  // CompiledModel. Thus, we need to pass litert::Model in separately.
   // @param compiled_model The CompiledModel object containing model and
   // environment information. It is used for creating backend resources for
   // model buffers.
   // @return A unique_ptr to the LoRA instance, or an error status.
   static absl::StatusOr<std::unique_ptr<LoRA>> Create(
-      std::unique_ptr<LoraData> lora_data, const litert::Model& model,
+      std::unique_ptr<LoraData> lora_data,
       const litert::CompiledModel& compiled_model);
 
   virtual ~LoRA() = default;
@@ -71,18 +66,15 @@ class LoRA {
   GetLoRABuffers() const;
 
  private:
-  LoRA(std::unique_ptr<LoraData> lora_data, const litert::Model& model,
+  LoRA(std::unique_ptr<LoraData> lora_data,
        const litert::CompiledModel& compiled_model)
-      : lora_data_(std::move(lora_data)),
-        model_(model),
-        compiled_model_(compiled_model) {}
+      : lora_data_(std::move(lora_data)), compiled_model_(compiled_model) {}
 
   // Initializes the LoRA object by creating TensorBuffers for all LoRA inputs
   // and copying the data from LoraData.
   absl::Status Init();
 
   std::unique_ptr<LoraData> lora_data_;
-  const litert::Model& model_;
   const litert::CompiledModel& compiled_model_;
   absl::flat_hash_map<std::string, litert::TensorBuffer> lora_buffers_;
 };

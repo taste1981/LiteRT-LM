@@ -106,19 +106,17 @@ class FrontendModelWrapper {
   static absl::StatusOr<std::unique_ptr<FrontendModelWrapper>> Create(
       absl::string_view model_path) {
     LITERT_ASSIGN_OR_RETURN(auto env, litert::Environment::Create({}));
-    LITERT_ASSIGN_OR_RETURN(
-        auto model, litert::Model::CreateFromFile(
-                        absl::StrCat(::testing::SrcDir(), "/", model_path)));
 
     LITERT_ASSIGN_OR_RETURN(auto options, litert::Options::Create());
     options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
 
-    LITERT_ASSIGN_OR_RETURN(auto compiled_model,
-                            litert::CompiledModel::Create(env, model, options));
+    LITERT_ASSIGN_OR_RETURN(
+        auto compiled_model,
+        litert::CompiledModel::Create(
+            env, absl::StrCat(::testing::SrcDir(), "/", model_path), options));
 
-    auto wrapper =
-        std::unique_ptr<FrontendModelWrapper>(new FrontendModelWrapper(
-            std::move(env), std::move(model), std::move(compiled_model)));
+    auto wrapper = std::unique_ptr<FrontendModelWrapper>(
+        new FrontendModelWrapper(std::move(env), std::move(compiled_model)));
     LITERT_RETURN_IF_ERROR(wrapper->InitializeBuffers());
     return wrapper;
   }
@@ -156,14 +154,11 @@ class FrontendModelWrapper {
   }
 
  private:
-  FrontendModelWrapper(Environment env, litert::Model model,
-                       litert::CompiledModel compiled_model)
-      : env_(std::move(env)),
-        model_(std::move(model)),
-        compiled_model_(std::move(compiled_model)) {}
+  FrontendModelWrapper(Environment env, litert::CompiledModel compiled_model)
+      : env_(std::move(env)), compiled_model_(std::move(compiled_model)) {}
 
   absl::Status InitializeBuffers() {
-    LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
+    LITERT_ASSIGN_OR_RETURN(auto signatures, compiled_model_.GetSignatures());
     if (signatures.size() != 1) {
       return absl::InvalidArgumentError(
           "Model must have exactly one signature.");
@@ -183,7 +178,6 @@ class FrontendModelWrapper {
   }
 
   Environment env_;
-  litert::Model model_;
   litert::CompiledModel compiled_model_;
   std::vector<litert::TensorBuffer> input_buffers_;
   std::vector<litert::TensorBuffer> output_buffers_;
@@ -292,10 +286,10 @@ TEST(AudioPreprocessorMiniAudioTest, UsmPreprocessingTwice) {
 
   // Preprocess the same audio data again without resetting the preprocessor.
   auto result = preprocessor->Preprocess(InputAudio(raw_audio_data));
-  EXPECT_THAT(result, testing::status::StatusIs(absl::StatusCode::kInternal));
+  EXPECT_THAT(result, ::testing::status::StatusIs(absl::StatusCode::kInternal));
   EXPECT_THAT(
       result.status().message(),
-      testing::HasSubstr(
+      ::testing::HasSubstr(
           "Windowed signals size is not equal to expected number of frames"));
 
   // Preprocess the same audio data again after resetting the preprocessor.
