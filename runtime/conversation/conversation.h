@@ -60,12 +60,16 @@ class ConversationConfig {
   // - `enable_constrained_decoding`: Whether to enable constrained decoding. If
   //     true, constrained decoding will be used, primarily for function
   //     calling.
+  // - `prefill_preface_on_init`: Whether to prefill the preface on init. If
+  //     true, the preface will be prefilled on init, which will make the first
+  //     response faster, but take longer to initialize.
   static absl::StatusOr<ConversationConfig> CreateDefault(
       const Engine& engine, std::optional<Preface> preface = std::nullopt,
       std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
       std::optional<DataProcessorConfig> overwrite_processor_config =
           std::nullopt,
-      bool enable_constrained_decoding = false);
+      bool enable_constrained_decoding = false,
+      bool prefill_preface_on_init = false);
 
   // Creates a ConversationConfig from the given SessionConfig.
   // Args:
@@ -83,12 +87,16 @@ class ConversationConfig {
   // - `enable_constrained_decoding`: Whether to enable constrained decoding. If
   //     true, constrained decoding will be used, primarily for function
   //     calling.
+  // - `prefill_preface_on_init`: Whether to prefill the preface on init. If
+  //     true, the preface will be prefilled on init, which will make the first
+  //     response faster, but take longer to initialize.
   static absl::StatusOr<ConversationConfig> CreateFromSessionConfig(
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
       std::optional<DataProcessorConfig> overwrite_processor_config =
           std::nullopt,
-      bool enable_constrained_decoding = false);
+      bool enable_constrained_decoding = false,
+      bool prefill_preface_on_init = false);
 
   // Returns the SessionConfig used for creating the ConversationConfig.
   const SessionConfig& GetSessionConfig() const { return session_config_; }
@@ -109,22 +117,30 @@ class ConversationConfig {
     return constrained_decoding_enabled_;
   }
 
+  // Returns whether the preface should be prefilled when the Conversation is
+  // created. This will make the first response faster, but take longer to
+  // initialize.
+  bool prefill_preface_on_init() const { return prefill_preface_on_init_; }
+
  private:
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
                               DataProcessorConfig processor_config,
-                              bool constrained_decoding_enabled = false)
+                              bool constrained_decoding_enabled = false,
+                              bool prefill_preface_on_init = false)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
         processor_config_(std::move(processor_config)),
-        constrained_decoding_enabled_(constrained_decoding_enabled) {}
+        constrained_decoding_enabled_(constrained_decoding_enabled),
+        prefill_preface_on_init_(prefill_preface_on_init) {}
 
   SessionConfig session_config_;
   Preface preface_;
   PromptTemplate prompt_template_;
   DataProcessorConfig processor_config_;
   bool constrained_decoding_enabled_;
+  bool prefill_preface_on_init_;
 };
 
 // A multi-turn centric stateful Conversation API for high-level user

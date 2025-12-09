@@ -219,7 +219,24 @@ TEST(ConversationConfigTest, CreateFromSessionConfig) {
   EXPECT_OK(Conversation::Create(*engine, config));
 }
 
-class ConversationTest : public testing::TestWithParam<bool> {
+struct ConversationTestParams {
+  bool enable_constrained_decoding;
+  bool prefill_preface_on_init;
+};
+
+class ConversationTest : public testing::TestWithParam<ConversationTestParams> {
+ public:
+  static std::vector<ConversationTestParams> GetTestParams() {
+    std::vector<ConversationTestParams> params;
+    for (bool enable_constrained_decoding : {true, false}) {
+      for (bool prefill_preface_on_init : {true, false}) {
+        params.push_back(
+            {enable_constrained_decoding, prefill_preface_on_init});
+      }
+    }
+    return params;
+  }
+
  protected:
   void SetUp() override {
     auto tokenizer = SentencePieceTokenizer::CreateFromFile(
@@ -230,7 +247,8 @@ class ConversationTest : public testing::TestWithParam<bool> {
   }
 
   std::unique_ptr<Tokenizer> tokenizer_;
-  bool enable_constrained_decoding_ = GetParam();
+  bool enable_constrained_decoding_ = GetParam().enable_constrained_decoding;
+  bool prefill_preface_on_init_ = GetParam().prefill_preface_on_init;
 };
 
 TEST_P(ConversationTest, SendMessage) {
@@ -247,7 +265,8 @@ TEST_P(ConversationTest, SendMessage) {
           *engine, /*preface=*/std::nullopt,
           /*overwrite_prompt_template=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
-          /*enable_constrained_decoding=*/enable_constrained_decoding_));
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*engine, config));
   EXPECT_THAT(conversation->GetHistory(), testing::IsEmpty());
@@ -362,7 +381,8 @@ TEST_P(ConversationTest, SendMultipleMessages) {
       ConversationConfig::CreateFromSessionConfig(
           *mock_engine, session_config, /*preface=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
-          /*enable_constrained_decoding=*/enable_constrained_decoding_));
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
 
@@ -443,7 +463,8 @@ TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
       ConversationConfig::CreateFromSessionConfig(
           *mock_engine, session_config, /*preface=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
-          /*enable_constrained_decoding=*/enable_constrained_decoding_));
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
 
@@ -536,7 +557,8 @@ TEST_P(ConversationTest, SendMessageAsync) {
           *engine, /*preface=*/std::nullopt,
           /*overwrite_prompt_template=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
-          /*enable_constrained_decoding=*/enable_constrained_decoding_));
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*engine, config));
 
@@ -665,7 +687,8 @@ TEST_P(ConversationTest, SendMultipleMessagesAsync) {
       ConversationConfig::CreateFromSessionConfig(
           *mock_engine, session_config, /*preface=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
-          /*enable_constrained_decoding=*/enable_constrained_decoding_));
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
 
@@ -873,7 +896,8 @@ TEST_P(ConversationTest, SendMessageWithPreface) {
                             {"content", "You are a helpful assistant."}}}},
           /*overwrite_prompt_template=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
-          /*enable_constrained_decoding=*/enable_constrained_decoding_));
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/true));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*engine, config));
   ASSERT_OK_AND_ASSIGN(const Message message,
@@ -907,7 +931,11 @@ TEST_P(ConversationTest, GetBenchmarkInfo) {
           /*preface=*/
           JsonPreface{
               .messages = {{{"role", "system"},
-                            {"content", "You are a helpful assistant."}}}}));
+                            {"content", "You are a helpful assistant."}}}},
+          /*overwrite_prompt_template=*/std::nullopt,
+          /*overwrite_processor_config=*/std::nullopt,
+          /*enable_constrained_decoding=*/enable_constrained_decoding_,
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*engine, config));
   ASSERT_OK_AND_ASSIGN(const Message message_1,
@@ -925,8 +953,15 @@ TEST_P(ConversationTest, GetBenchmarkInfo) {
   EXPECT_EQ(benchmark_info_2.GetTotalPrefillTurns(), 2);
 }
 
-INSTANTIATE_TEST_SUITE_P(ConversationTest, ConversationTest, testing::Bool(),
-                         testing::PrintToStringParamName());
+INSTANTIATE_TEST_SUITE_P(
+    ConversationTest, ConversationTest,
+    testing::ValuesIn(ConversationTest::GetTestParams()),
+    [](const testing::TestParamInfo<ConversationTestParams>& info) {
+      return absl::StrCat(
+          info.param.enable_constrained_decoding ? "Constrained" : "Free", "_",
+          info.param.prefill_preface_on_init ? "PrefillOnInit"
+                                             : "NoPrefillOnInit");
+    });
 
 absl::AnyInvocable<void(absl::StatusOr<Message>)>
 CreateCancelledMessageCallback(absl::Status& status, absl::Notification& done) {

@@ -44,11 +44,41 @@
 
 namespace litert::lm {
 
+namespace {
+absl::Status FillPrefaceForPromptTemplateInput(
+    const Preface& preface, ModelDataProcessor* model_data_processor,
+    PromptTemplateInput& tmpl_input) {
+  if (std::holds_alternative<JsonPreface>(preface)) {
+    auto json_preface = std::get<JsonPreface>(preface);
+
+    if (json_preface.messages.is_array()) {
+      for (auto& message : json_preface.messages) {
+        ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                         model_data_processor->MessageToTemplateInput(message));
+        tmpl_input.messages.push_back(message_tmpl_input);
+      }
+    }
+
+    if (json_preface.tools.is_null()) {
+      tmpl_input.tools = nullptr;
+    } else {
+      ASSIGN_OR_RETURN(tmpl_input.tools,
+                       model_data_processor->FormatTools(json_preface.tools));
+    }
+    tmpl_input.extra_context = json_preface.extra_context;
+  } else {
+    return absl::UnimplementedError("Preface type is not supported yet");
+  }
+  return absl::OkStatus();
+}
+
+}  // namespace
+
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
     const Engine& engine, std::optional<Preface> preface,
     std::optional<PromptTemplate> overwrite_prompt_template,
     std::optional<DataProcessorConfig> overwrite_processor_config,
-    bool enable_constrained_decoding) {
+    bool enable_constrained_decoding, bool prefill_preface_on_init) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   if (overwrite_prompt_template.has_value()) {
     session_config.GetMutableJinjaPromptTemplate() =
@@ -66,7 +96,7 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
     const Engine& engine, const SessionConfig& session_config,
     std::optional<Preface> preface,
     std::optional<DataProcessorConfig> overwrite_processor_config,
-    bool enable_constrained_decoding) {
+    bool enable_constrained_decoding, bool prefill_preface_on_init) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
@@ -97,34 +127,15 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
   return ConversationConfig(
       session_config_copy, preface.value_or(JsonPreface()),
       PromptTemplate(session_config_copy.GetJinjaPromptTemplate()),
-      processor_config, enable_constrained_decoding);
+      processor_config, enable_constrained_decoding, prefill_preface_on_init);
 }
 
 absl::StatusOr<std::string> Conversation::GetSingleTurnText(
     const Message& message) const {
   PromptTemplateInput old_tmpl_input;
-  if (std::holds_alternative<JsonPreface>(preface_)) {
-    auto json_preface = std::get<JsonPreface>(preface_);
+  RETURN_IF_ERROR(FillPrefaceForPromptTemplateInput(
+      preface_, model_data_processor_.get(), old_tmpl_input));
 
-    if (json_preface.messages.is_array()) {
-      for (auto& message : json_preface.messages) {
-        ASSIGN_OR_RETURN(
-            nlohmann::ordered_json message_tmpl_input,
-            model_data_processor_->MessageToTemplateInput(message));
-        old_tmpl_input.messages.push_back(message_tmpl_input);
-      }
-    }
-
-    if (json_preface.tools.is_null()) {
-      old_tmpl_input.tools = nullptr;
-    } else {
-      ASSIGN_OR_RETURN(old_tmpl_input.tools,
-                       model_data_processor_->FormatTools(json_preface.tools));
-    }
-    old_tmpl_input.extra_context = json_preface.extra_context;
-  } else {
-    return absl::UnimplementedError("Preface type is not supported yet");
-  }
   absl::MutexLock lock(history_mutex_);  // NOLINT
   for (const auto& history_msg : history_) {
     if (std::holds_alternative<nlohmann::ordered_json>(history_msg)) {
@@ -145,7 +156,7 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   nlohmann::ordered_json messages =
       json_message.is_array() ? json_message
                               : nlohmann::ordered_json::array({json_message});
-  if (history_.empty()) {
+  if (history_.empty() && !config_.prefill_preface_on_init()) {
     PromptTemplateInput new_tmpl_input = std::move(old_tmpl_input);
     for (const auto& message : messages) {
       ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
@@ -212,10 +223,23 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
                                &session->GetTokenizer(),
                                session->GetSessionConfig().GetStopTokenIds(),
                                config.constrained_decoding_enabled()));
-
   auto conversation = absl::WrapUnique(new Conversation(
       std::move(session), std::move(model_data_processor), config.GetPreface(),
       config.GetPromptTemplate(), config));
+  if (config.prefill_preface_on_init()) {
+    PromptTemplateInput tmpl_input;
+    RETURN_IF_ERROR(FillPrefaceForPromptTemplateInput(
+        config.GetPreface(), conversation->model_data_processor_.get(),
+        tmpl_input));
+    ASSIGN_OR_RETURN(const std::string single_turn_text,
+                     conversation->prompt_template_.Apply(tmpl_input));
+    ASSIGN_OR_RETURN(const auto session_inputs,
+                     conversation->model_data_processor_->ToInputDataVector(
+                         single_turn_text,
+                         std::get<JsonPreface>(config.GetPreface()).messages,
+                         std::monostate()));
+    RETURN_IF_ERROR(conversation->session_->RunPrefill(session_inputs));
+  }
   return conversation;
 }
 
