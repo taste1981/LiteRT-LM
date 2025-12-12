@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>  // NOLINT(build/c++17) for std::filesystem::path
 #include <memory>
 #include <optional>
 #include <string>
@@ -1133,8 +1134,13 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
         ASSIGN_OR_RETURN(auto model_path,
                          executor_settings.GetModelAssets().GetPath());
         if (weight_cache_path.empty()) {
-          weight_cache_path = Dirname(model_path);
+          weight_cache_path = std::filesystem::path(std::string(model_path))
+                                  .parent_path().string();
+          if (weight_cache_path.empty()) {
+            weight_cache_path = std::filesystem::current_path().string();
+          }
         }
+        ABSL_LOG(INFO) << "Setting serialization dir: " << weight_cache_path;
         gpu_compilation_options.SetSerializationDir(weight_cache_path.c_str());
         absl::string_view model_name = Basename(model_path);
         gpu_compilation_options.SetModelCacheKey(model_name.data());
