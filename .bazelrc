@@ -403,7 +403,7 @@ build:avx_linux --host_copt=-mavx
 build:avx_win --copt=/arch:AVX
 
 # Assume AVX2 x86_64 platforms for linux and windows.
-build:linux --copt=-mavx2
+build:linux_x86_64 --copt=-mavx2
 build:windows --copt=/arch:AVX2
 
 # Enable all targets in XLA

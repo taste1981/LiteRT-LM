@@ -76,7 +76,7 @@ jobs:
 
       - name: Run bazel build on Linux.
         run: |
-          bazel build --disk_cache=~/.cache/bazel-linux \
+          bazel build --disk_cache=~/.cache/bazel-linux --config=linux_x86_64 \
             //... \
             //runtime/engine:litert_lm_main
 
@@ -93,11 +93,13 @@ jobs:
 
       - name: Run bazel test on Linux.
         run: |
-          bazel test --disk_cache=~/.cache/bazel-linux --test_output=errors //...
+          bazel test --disk_cache=~/.cache/bazel-linux --config=linux_x86_64 \
+            --test_output=errors \
+            //...
 
       - name: Run bazel build on Linux with dynamic linking.
         run: |
-          bazel build \
+          bazel build --config=linux_x86_64 \
             --define=litert_link_capi_so=true \
             --define=resolve_symbols_in_exec=false \
             //runtime/engine:litert_lm_main
