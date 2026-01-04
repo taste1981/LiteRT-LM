@@ -29,6 +29,7 @@
 
 #include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/flags/flag.h"  // from @com_google_absl
+#include "absl/flags/parse.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -114,6 +115,8 @@ std::string GetInputPrompt() {
 }
 
 absl::Status MainHelper(int argc, char** argv) {
+  absl::ParseCommandLine(argc, argv);
+
   // Overrides the default for FLAGS_minloglevel to error.
   absl::SetMinLogLevel(absl::LogSeverityAtLeast::kError);
   absl::SetStderrThreshold(absl::LogSeverityAtLeast::kFatal);
