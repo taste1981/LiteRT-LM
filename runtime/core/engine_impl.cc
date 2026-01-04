@@ -225,6 +225,8 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   const auto& main_executor_settings =
       engine_settings.GetMainExecutorSettings();
 
+  ABSL_LOG(INFO) << "Creating LLM executor with backend: "
+                << main_executor_settings.GetBackend();
   switch (main_executor_settings.GetBackend()) {
     default: {
       ASSIGN_OR_RETURN(executor,

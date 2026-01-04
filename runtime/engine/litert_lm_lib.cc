@@ -564,6 +564,7 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
   ASSIGN_OR_RETURN(auto engine,
                    litert::lm::Engine::CreateEngine(std::move(engine_settings),
                                                     settings.input_prompt));
+  ABSL_LOG(INFO) << "Engine created successfully.";
   // Get the session config.
   SessionConfig session_config = CreateSessionConfig(settings);
 

@@ -105,6 +105,10 @@ std::string GetInputPrompt() {
 absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
 
+  // Overrides the default for FLAGS_minloglevel to error.
+  absl::SetMinLogLevel(absl::LogSeverityAtLeast::kInfo);
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
+
   if (argc <= 1) {
     ABSL_LOG(INFO)
         << "Example usage: ./litert_lm_main --model_path=<model_path> "

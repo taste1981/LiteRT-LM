@@ -72,6 +72,7 @@ cc_library(
     hdrs = ["embedding_lookup_multi_modal.h"],
     deps = [
         ":embedding_lookup",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

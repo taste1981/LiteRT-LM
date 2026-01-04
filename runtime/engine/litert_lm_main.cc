@@ -118,8 +118,8 @@ absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
 
   // Overrides the default for FLAGS_minloglevel to error.
-  absl::SetMinLogLevel(absl::LogSeverityAtLeast::kError);
-  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kFatal);
+  absl::SetMinLogLevel(absl::LogSeverityAtLeast::kInfo);
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kInfo);
 
   const std::string model_path = absl::GetFlag(FLAGS_model_path);
   if (model_path.empty()) {

@@ -183,6 +183,7 @@ cc_library(
     hdrs = ["llm_litert_compiled_model_cache_utils.h"],
     deps = [
         "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",

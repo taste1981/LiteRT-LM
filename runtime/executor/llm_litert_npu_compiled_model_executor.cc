@@ -621,6 +621,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::AllocateTransformerBuffers(
   constexpr absl::string_view kv_cache_slice_v_root_name = "kv_slice_v_";
 
   for (auto input_name : prefill_signature->InputNames()) {
+    ABSL_LOG(INFO) << "Allocating prefill input buffer: "
+                   << input_name;
     if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
         absl::StartsWith(input_name, kv_cache_v_root_name)) {
       LITERT_ASSIGN_OR_RETURN(
@@ -634,6 +636,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::AllocateTransformerBuffers(
   }
   auto decode_signature = transformer_model->FindSignature(kDecodeSignature);
   for (auto input_name : decode_signature->InputNames()) {
+    ABSL_LOG(INFO) << "Allocating decode input buffer: "
+                   << input_name;
     if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
         absl::StartsWith(input_name, kv_cache_v_root_name)) {
       continue;
@@ -643,6 +647,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::AllocateTransformerBuffers(
         llm_compiled_model.CreateInputBuffer(kDecodeSignature, input_name));
   }
   for (auto output_name : prefill_signature->OutputNames()) {
+    ABSL_LOG(INFO) << "Allocating prefill output buffer: "
+                   << output_name;
     if (absl::StartsWith(output_name, kv_cache_slice_k_root_name) ||
         absl::StartsWith(output_name, kv_cache_slice_v_root_name)) {
       LITERT_ASSIGN_OR_RETURN(
@@ -652,6 +658,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::AllocateTransformerBuffers(
     }
   }
   for (auto output_name : decode_signature->OutputNames()) {
+    ABSL_LOG(INFO) << "Allocating decode output buffer: "
+                   << output_name;
     if (absl::StartsWith(output_name, kv_cache_slice_k_root_name) ||
         absl::StartsWith(output_name, kv_cache_slice_v_root_name)) {
       LITERT_ASSIGN_OR_RETURN(
@@ -1422,8 +1430,12 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
                           HasPerLayerEmbedder(*llm_model));
   const bool IsGemma3n = has_per_layer_embeddings;
   if (IsGemma3n) {
+    ABSL_LOG(INFO) << "Creating LlmLiteRtNpuCompiledModelExecutor for "
+                      "Gemma3n model.";
     return CreateForGemma3n(executor_settings, resources, env, llm_model);
   } else {
+    ABSL_LOG(INFO) << "Creating LlmLiteRtNpuCompiledModelExecutor for "
+                      "Gemma3 model.";
     return CreateForGemma3(executor_settings, resources, env, llm_model);
   }
 };
@@ -1448,10 +1460,14 @@ LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3n(
   // If the model is fully AOT compiled for NPU, NPU accelerator is used
   // automatically.
   // Set up LiteRt options.
+  ABSL_LOG(INFO)
+      << "Before parsing litert options for Gemma3n model.";
   LITERT_ASSIGN_OR_RETURN(auto options, CreateLiteRtOptions());
+  ABSL_LOG(INFO) << "After parsing litert options for Gemma3n model.";
   LITERT_ASSIGN_OR_RETURN(
       CompiledModel llm_compiled_model,
       CompiledModel::Create(env, *transformer_model, options));
+  ABSL_LOG(INFO) << "Created compiled model for Gemma3n model.";
 
   // Allocate all input and output buffers of the LLM model that are meant to be
   // used by the NPU chip first, so that we can later duplicate the buffers into
@@ -1475,6 +1491,7 @@ LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3n(
   if (!allocate_status.ok()) {
     return allocate_status;
   }
+  ABSL_LOG(INFO) << "Allocated transformer buffers for Gemma3n model.";
 
   // Gemma3n specific fix: KV cache buffer 19 of *prefill* is not connected
   // to any OPs in the model, making the LiteRT runtime allocate host memory
@@ -1574,6 +1591,8 @@ LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3n(
           mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens],
           gemma_prefill_input_buffers, gemma_decode_input_buffers));
 
+  ABSL_LOG(INFO)
+      << "Before creating LlmLiteRtNpuCompiledModelExecutor for Gemma3n.";
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
       executor_settings, env, std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
@@ -1582,6 +1601,7 @@ LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3n(
       std::move(cache_update_inference_context), std::move(prefill_runner_set),
       std::move(embedding_lookup_manager),
       std::move(embedder_per_layer_context)));
+  ABSL_LOG(INFO) << "Successfully Created LlmLiteRtNpuCompiledModelExecutor for Gemma3n.";
   return executor;
 }
 
