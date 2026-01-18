@@ -86,12 +86,9 @@ typedef struct {
 // Creates a LiteRT LM Session Config.
 // The caller is responsible for destroying the config using
 // `litert_lm_session_config_delete`.
-// @param sampler_params The sampler parameters to use. If NULL, default
-// sampler parameters will be used.
 // @return A pointer to the created config, or NULL on failure.
 LITERT_LM_C_API_EXPORT
-LiteRtLmSessionConfig* litert_lm_session_config_create(
-    const LiteRtLmSamplerParams* sampler_params);
+LiteRtLmSessionConfig* litert_lm_session_config_create();
 
 // Sets the maximum number of output tokens per decode step for this session.
 // @param config The config to modify.
@@ -99,6 +96,13 @@ LiteRtLmSessionConfig* litert_lm_session_config_create(
 LITERT_LM_C_API_EXPORT
 void litert_lm_session_config_set_max_output_tokens(
     LiteRtLmSessionConfig* config, int max_output_tokens);
+
+// Sets the sampler parameters for this session config.
+// @param config The config to modify.
+// @param sampler_params The sampler parameters to use.
+LITERT_LM_C_API_EXPORT
+void litert_lm_session_config_set_sampler_params(
+    LiteRtLmSessionConfig* config, const LiteRtLmSamplerParams* sampler_params);
 
 // Destroys a LiteRT LM Session Config.
 // @param config The config to destroy.

@@ -121,9 +121,10 @@ TEST(EngineCTest, CreateSessionConfigWithSamplerParams) {
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
 
-  SessionConfigPtr config(litert_lm_session_config_create(&sampler_params),
+  SessionConfigPtr config(litert_lm_session_config_create(),
                           &litert_lm_session_config_delete);
   ASSERT_NE(config, nullptr);
+  litert_lm_session_config_set_sampler_params(config.get(), &sampler_params);
 
   const auto& params = config->config->GetSamplerParams();
   EXPECT_EQ(params.k(), 10);
@@ -133,7 +134,7 @@ TEST(EngineCTest, CreateSessionConfigWithSamplerParams) {
 }
 
 TEST(EngineCTest, CreateSessionConfigWithNoSamplerParams) {
-  SessionConfigPtr config(litert_lm_session_config_create(nullptr),
+  SessionConfigPtr config(litert_lm_session_config_create(),
                           &litert_lm_session_config_delete);
   ASSERT_NE(config, nullptr);
 
@@ -167,10 +168,11 @@ TEST(EngineCTest, CreateConversationConfig) {
   sampler_params.top_p = 0.5f;
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
-  SessionConfigPtr session_config(
-      litert_lm_session_config_create(&sampler_params),
-      &litert_lm_session_config_delete);
+  SessionConfigPtr session_config(litert_lm_session_config_create(),
+                                  &litert_lm_session_config_delete);
   ASSERT_NE(session_config, nullptr);
+  litert_lm_session_config_set_sampler_params(session_config.get(),
+                                              &sampler_params);
 
   // 3. Create a Conversation Config with the Engine Handle, Session Config
   // and System Message.
@@ -221,7 +223,7 @@ TEST(EngineCTest, CreateConversationConfigWithNoSamplerParams) {
   // 2. Create a Conversation Config with the Engine Handle and System Message.
   const std::string system_message =
       R"({"type":"text","text":"You are a helpful assistant."})";
-  SessionConfigPtr session_config(litert_lm_session_config_create(nullptr),
+  SessionConfigPtr session_config(litert_lm_session_config_create(),
                                   &litert_lm_session_config_delete);
   ASSERT_NE(session_config, nullptr);
   ConversationConfigPtr conversation_config(
@@ -259,7 +261,7 @@ TEST(EngineCTest, CreateConversationConfigWithNoSamplerParamsNoSystemMessage) {
   ASSERT_NE(engine, nullptr);
 
   // 2. Create a Conversation Config with the Engine Handle and System Message.
-  SessionConfigPtr session_config(litert_lm_session_config_create(nullptr),
+  SessionConfigPtr session_config(litert_lm_session_config_create(),
                                   &litert_lm_session_config_delete);
   ASSERT_NE(session_config, nullptr);
   ConversationConfigPtr conversation_config(
@@ -298,10 +300,11 @@ TEST(EngineCTest, CreateConversationConfigWithNoSystemMessage) {
   sampler_params.top_p = 0.5f;
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
-  SessionConfigPtr session_config(
-      litert_lm_session_config_create(&sampler_params),
-      &litert_lm_session_config_delete);
+  SessionConfigPtr session_config(litert_lm_session_config_create(),
+                                  &litert_lm_session_config_delete);
   ASSERT_NE(session_config, nullptr);
+  litert_lm_session_config_set_sampler_params(session_config.get(),
+                                              &sampler_params);
 
   // 3. Create a Conversation Config with the Engine Handle and Session Config.
   ConversationConfigPtr conversation_config(
@@ -380,7 +383,7 @@ TEST(EngineCTest, CreateSessionWithMaxOutputTokens) {
 
   // Test with max_output_tokens=1. The response length should be short (<10).
   {
-    SessionConfigPtr session_config(litert_lm_session_config_create(nullptr),
+    SessionConfigPtr session_config(litert_lm_session_config_create(),
                                     &litert_lm_session_config_delete);
     ASSERT_NE(session_config, nullptr);
     litert_lm_session_config_set_max_output_tokens(session_config.get(), 1);
@@ -410,7 +413,7 @@ TEST(EngineCTest, CreateSessionWithMaxOutputTokens) {
 
   // Test without max_output_tokens. The response length should be long (>=10).
   {
-    SessionConfigPtr session_config(litert_lm_session_config_create(nullptr),
+    SessionConfigPtr session_config(litert_lm_session_config_create(),
                                     &litert_lm_session_config_delete);
     ASSERT_NE(session_config, nullptr);
 
@@ -495,10 +498,11 @@ TEST(EngineCTest, ConversationSendMessageWithConfig) {
   sampler_params.top_p = 0.5f;
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
-  SessionConfigPtr session_config(
-      litert_lm_session_config_create(&sampler_params),
-      &litert_lm_session_config_delete);
+  SessionConfigPtr session_config(litert_lm_session_config_create(),
+                                  &litert_lm_session_config_delete);
   ASSERT_NE(session_config, nullptr);
+  litert_lm_session_config_set_sampler_params(session_config.get(),
+                                              &sampler_params);
 
   // 3. Create a Conversation Config with the Engine Handle, Session Config
   // and System Message.
