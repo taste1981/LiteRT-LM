@@ -1610,6 +1610,10 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
         // This option prevents KVCache handling from being affected by
         // BHWC conversion in NoExternalTensorsMode.
         gpu_compilation_options.AddExternalTensorPattern("kv_cache_");
+        if (signatures.input_int32_param.has_value()) {
+          gpu_optimized_single_buffer_cache = true;
+          gpu_compilation_options.AddExternalTensorPattern("param_tensor");
+        }
         ASSIGN_OR_RETURN(auto sampler_backend,
                          GetSamplerBackend(executor_settings));
         if (sampler_backend == Backend::GPU) {
