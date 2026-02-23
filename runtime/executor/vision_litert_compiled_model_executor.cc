@@ -310,10 +310,11 @@ absl::StatusOr<ExecutorVisionData> VisionLiteRtCompiledModelExecutor::Encode(
       vision_encoder_->GetMutableInputBuffers()[0].Write<float>(
           input_image_data));
   auto& encoder_outputs = vision_encoder_->GetMutableOutputBuffers();
-  if (encoder_outputs[0].IsWebGpuMemory()) {
-    // For WebGPU memory, we need to create a new output buffer to hold the
-    // data, otherwise we will get failed to lock TensorBuffer error on the
-    // second call to `Encode`. See b/457483190
+  if (encoder_outputs[0].IsWebGpuMemory() ||
+      encoder_outputs[0].IsMetalMemory()) {
+    // For WebGPU and Metal memory, we need to create a new output buffer to
+    // hold the data, otherwise we will get failed to lock TensorBuffer error on
+    // the second call to `Encode`. See b/457483190
     LITERT_ASSIGN_OR_RETURN(
         encoder_outputs,
         vision_encoder_->GetCompiledModel().CreateOutputBuffers(
