@@ -145,7 +145,12 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
       //   gpu_options.SetPrecision(GpuOptions::Precision::kFp16);
       // }
       gpu_options.SetPrecision(GpuOptions::Precision::kFp32);
+#if defined(__APPLE__)
+      gpu_options.SetPreferTextureWeights(false);
+      gpu_options.SetUseMetalArgumentBuffers(true);
+#else   // !__APPLE__
       gpu_options.SetPreferTextureWeights(true);
+#endif  // !__APPLE__
 
       if (weight_cache_path != ":nocache") {
         ASSIGN_OR_RETURN(auto model_path,
