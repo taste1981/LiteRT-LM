@@ -1451,6 +1451,10 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Reset() {
   RETURN_IF_ERROR(processed_tokens_.RollBackToStep(0));
   sampled_ids_.clear();
   latency_stats_ = {};
+  if (embedder_per_layer_context_.has_value()) {
+    latency_stats_.prefill_embedder_per_layer_inference_latency_us = 0;
+    latency_stats_.decode_embedder_per_layer_inference_latency_us = 0;
+  }
 
   RETURN_IF_ERROR(ClearKVCache(llm_inference_context_.prefill_input_buffers));
   return absl::OkStatus();
