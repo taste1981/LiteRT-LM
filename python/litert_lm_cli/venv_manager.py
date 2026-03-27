@@ -15,118 +15,108 @@
 """Virtual environment manager for LiteRT-LM."""
 
 import os
+import shutil
 import subprocess
 import sys
 
-# The dir for the virtual environment managed by this CLI. This dir won't be
-# used if there is an active virtual environment.
-_SELF_MANAGED_VENV_DIR = os.path.expanduser("~/.litert-lm/.venv")
 
-# The directory for the virtual environment. It prioritizes the active virtual
-# environment if available (VIRTUAL_ENV or sys.prefix) over the "self-managed"
-# virtual environment.
-VENV_DIR = os.environ.get(
-    "VIRTUAL_ENV",
-    sys.prefix if sys.prefix != sys.base_prefix else _SELF_MANAGED_VENV_DIR,
-)
+class VenvManager:
+  """Manages the virtual environment paths and binaries."""
 
-PYTHON_BIN = os.path.join(VENV_DIR, "bin", "python")
-PIP_BIN = os.path.join(VENV_DIR, "bin", "pip")
-LITERT_TORCH_BIN = os.path.join(VENV_DIR, "bin", "litert-torch")
-UV_BIN = os.path.join(VENV_DIR, "bin", "uv")
+  def __init__(self, prefer_current_venv: bool = False):
+    self._self_managed_venv_dir = os.path.expanduser("~/.litert-lm/.venv")
+    if not prefer_current_venv:
+      self.venv_dir = self._self_managed_venv_dir
+    else:
+      self.venv_dir = os.environ.get(
+          "VIRTUAL_ENV",
+          sys.prefix
+          if sys.prefix != sys.base_prefix
+          else self._self_managed_venv_dir,
+      )
 
+    self.python_bin = os.path.join(self.venv_dir, "bin", "python")
+    self.pip_bin = os.path.join(self.venv_dir, "bin", "pip")
+    self.litert_torch_bin = os.path.join(self.venv_dir, "bin", "litert-torch")
+    self.uv_bin = os.path.join(self.venv_dir, "bin", "uv")
 
-def ensure_venv():
-  """Ensures that the virtual environment directory exists."""
-  if os.path.exists(VENV_DIR):
-    return
+  def ensure_venv(self):
+    """Ensures that the virtual environment directory exists."""
+    if os.path.exists(self.venv_dir):
+      return
 
-  if VENV_DIR != _SELF_MANAGED_VENV_DIR:
-    # Note this should never happen.
-    raise RuntimeError(f"Virtual environment directory not found: {VENV_DIR}")
+    if self.venv_dir != self._self_managed_venv_dir:
+      # Note this should never happen.
+      raise RuntimeError(
+          f"Virtual environment directory not found: {self.venv_dir}"
+      )
 
-  print(f"Creating virtual environment in {VENV_DIR}...")
-  os.makedirs(os.path.dirname(VENV_DIR), exist_ok=True)
-  python_exe = sys.executable or "python3"
-  subprocess.run([python_exe, "-m", "venv", VENV_DIR], check=True)
+    print(f"Creating virtual environment in {self.venv_dir}...")
+    os.makedirs(os.path.dirname(self.venv_dir), exist_ok=True)
+    python_exe = sys.executable or "python3"
+    subprocess.run([python_exe, "-m", "venv", self.venv_dir], check=True)
 
+  def recreate_venv_if_self_managed(self):
+    """Deletes and re-creates the virtual environment if it is self-managed.
 
-def recreate_venv_if_self_managed():
-  """Deletes and re-creates the virtual environment if it is self-managed.
+    This ensures we are using the latest litert-torch-nightly. Since uv has
+    local cache, if the version has been downloaded before, it will be very
+    fast.
+    """
+    if self.venv_dir != self._self_managed_venv_dir:
+      # Only recreate if it's the default venv managed by the CLI.
+      return
 
-  This ensures we are using the latest litert-torch-nightly. Since uv has local
-  cache, if the version has been downloaded before, it will be very fast.
-  """
-  if VENV_DIR != _SELF_MANAGED_VENV_DIR:
-    # Only recreate if it's the default venv managed by the CLI.
-    return
+    if os.path.exists(self.venv_dir):
+      print(f"Deleting virtual environment in {self.venv_dir}...")
+      shutil.rmtree(self.venv_dir)
 
-  if os.path.exists(VENV_DIR):
-    import shutil
+    self.ensure_venv()
 
-    print(f"Deleting virtual environment in {VENV_DIR}...")
-    shutil.rmtree(VENV_DIR)
+  def ensure_binary(self, binary_path):
+    """Ensures the binary exists, or installs it if using the default venv."""
+    if os.path.exists(binary_path):
+      return
 
-  ensure_venv()
+    self.ensure_venv()
 
-
-def ensure_binary(binary_path):
-  """Ensures the binary exists, or installs it if using the default venv."""
-  if os.path.exists(binary_path):
-    return
-
-  if VENV_DIR != _SELF_MANAGED_VENV_DIR:
-    # This might happens if user manually uninstall the package to break the
-    # dependency.
-    raise RuntimeError(
-        "Required binary not found in the active virtual environment:"
-        f" {VENV_DIR}. Binary path: {binary_path}. Please install the"
-        " corresponding package manually."
-    )
-  else:
-    # If the venv is _SELF_MANAGED_VENV_DIR (~/.litert-lm/.venv) managed by the CLI,
-    # then attempt to install the required dependencies.
-    pass
-
-  ensure_venv()
-
-  if binary_path == PIP_BIN:
-    print("Ensuring pip is installed...")
-    subprocess.run(
-        [
-            PYTHON_BIN,
-            "-m",
-            "ensurepip",
-            "--default-pip",
-        ],
-        check=True,
-    )
-  elif binary_path == UV_BIN:
-    ensure_binary(PIP_BIN)
-    print("Installing uv into the virtual environment...")
-    subprocess.run(
-        [
-            PIP_BIN,
-            "install",
-            "uv",
-            "-i",
-            "https://pypi.org/simple",
-        ],
-        check=True,
-    )
-  elif binary_path == LITERT_TORCH_BIN:
-    ensure_binary(UV_BIN)
-    print("Installing litert-torch with uv...")
-    subprocess.run(
-        [
-            UV_BIN,
-            "pip",
-            "install",
-            "-i",
-            "https://pypi.org/simple",
-            "litert-torch-nightly",
-            "--python",
-            PYTHON_BIN,
-        ],
-        check=True,
-    )
+    if binary_path == self.pip_bin:
+      print("Ensuring pip is installed...")
+      subprocess.run(
+          [
+              self.python_bin,
+              "-m",
+              "ensurepip",
+              "--default-pip",
+          ],
+          check=True,
+      )
+    elif binary_path == self.uv_bin:
+      self.ensure_binary(self.pip_bin)
+      print("Installing uv into the virtual environment...")
+      subprocess.run(
+          [
+              self.pip_bin,
+              "install",
+              "uv",
+              "-i",
+              "https://pypi.org/simple",
+          ],
+          check=True,
+      )
+    elif binary_path == self.litert_torch_bin:
+      self.ensure_binary(self.uv_bin)
+      print("Installing litert-torch with uv...")
+      subprocess.run(
+          [
+              self.uv_bin,
+              "pip",
+              "install",
+              "-i",
+              "https://pypi.org/simple",
+              "litert-torch-nightly",
+              "--python",
+              self.python_bin,
+          ],
+          check=True,
+      )

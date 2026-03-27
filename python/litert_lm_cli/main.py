@@ -29,12 +29,28 @@ from litert_lm_cli import venv_manager
 class LiteRTLMCLI:
   """CLI tool for LiteRT-LM models."""
 
-  def convert(self, source, model_id=None, **kwargs):
+  def convert(self, source, model_id=None, prefer_current_venv=False, **kwargs):
     """Converts a HuggingFace model to LiteRT-LM format.
+
+    The conversion process requires the `litert-torch` tool. These dependencies
+    are optional and may not be supported on all platforms (e.g., Raspberry Pi).
+    By default, `litert-lm` manages these dependencies in a standalone virtual
+    environment and installs them on-demand to avoid conflicts with your
+    environment. If you prefer using the current active venv, run with
+    `--prefer_current_venv`.
 
     Args:
       source: The HuggingFace model ID or path (e.g., "google/gemma-2b-it").
       model_id: The ID to store the model as. Defaults to source.
+      prefer_current_venv: Whether to use the currently active virtual
+        environment if there is one. If set to True (e.g., via
+        `--prefer-current-venv`), the command will attempt to use the active
+        virtual environment. If set to False (the default), it will use a
+        standalone virtual environment managed by the litert-lm CLI
+        (~/.litert-lm/.venv). If set to True but no virtual environment is
+        active, it will fall back to the standalone environment. The standalone
+        environment is automatically updated to the latest
+        `litert-torch-nightly` on each run.
       **kwargs: Additional arguments passed to litert-torch.
     """
     effective_model_id = model_id or source
@@ -58,14 +74,15 @@ class LiteRTLMCLI:
       )
       return
 
-    venv_manager.recreate_venv_if_self_managed()
-    venv_manager.ensure_binary(venv_manager.LITERT_TORCH_BIN)
+    vm = venv_manager.VenvManager(prefer_current_venv=prefer_current_venv)
+    vm.recreate_venv_if_self_managed()
+    vm.ensure_binary(vm.litert_torch_bin)
 
     output_dir = model.get_model_dir(effective_model_id)
     os.makedirs(output_dir, exist_ok=True)
 
     cmd = [
-        venv_manager.LITERT_TORCH_BIN,
+        vm.litert_torch_bin,
         "export_hf",
         "--model",
         source,

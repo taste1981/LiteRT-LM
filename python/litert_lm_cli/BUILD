@@ -12,9 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@org_tensorflow//tensorflow:pytype.default.bzl", "pytype_strict_binary", "pytype_strict_library")
+load(
+    "@org_tensorflow//tensorflow:pytype.default.bzl",
+    "pytype_strict_binary",
+    "pytype_strict_library",
+)
 
 load("@custom_pip_deps//:requirements.bzl", "requirement")
+load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_python//python:packaging.bzl", "py_package", "py_wheel")
 load("//:version.bzl", "VERSION")
 
@@ -30,6 +35,18 @@ pytype_strict_library(
 pytype_strict_library(
     name = "venv_manager",
     srcs = ["venv_manager.py"],
+    imports = [".."],
+)
+
+py_test(
+    name = "venv_manager_test",
+    srcs = ["venv_manager_test.py"],
+    tags = ["nowindows"],
+    deps = [
+        ":venv_manager",
+        "@absl_py//absl/testing:absltest",
+    ],
+    imports = [".."],
 )
 
 pytype_strict_binary(
@@ -97,7 +114,6 @@ py_wheel(
         "//conditions:default": ["litert-lm"],
     }) + [
         "fire",
-        "litert-torch-nightly",
     ],
     deps = [":litert_lm_cli_pkg"],
 )
