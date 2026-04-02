@@ -119,8 +119,14 @@ class AbstractEngine(abc.ABC):
     """
 
   @abc.abstractmethod
-  def create_session(self) -> AbstractSession:
+  def create_session(
+      self, *, apply_prompt_template: bool = True
+  ) -> AbstractSession:
     """Creates a new session for this engine.
+
+    Args:
+        apply_prompt_template: Whether to apply the basic prompt templates in
+          the session.
 
     Returns:
         A new session instance for low-level interaction with the model.

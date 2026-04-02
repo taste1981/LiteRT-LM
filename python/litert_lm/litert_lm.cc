@@ -648,10 +648,13 @@ NB_MODULE(litert_lm_ext, module) {
           nb::arg("extra_context") = nb::none())
       .def(
           "create_session",
-          [](Engine& self) {
-            return VALUE_OR_THROW(
-                self.CreateSession(SessionConfig::CreateDefault()));
+          [](Engine& self, bool apply_prompt_template) {
+            auto session_config = SessionConfig::CreateDefault();
+            session_config.SetApplyPromptTemplateInSession(
+                apply_prompt_template);
+            return VALUE_OR_THROW(self.CreateSession(session_config));
           },
+          nb::kw_only(), nb::arg("apply_prompt_template") = true,
           "Creates a new session for this engine.");
 
   nb::class_<Engine::Session>(module, "Session", nb::dynamic_attr(),

@@ -192,6 +192,13 @@ class EngineTest(LiteRtLmTestBase):
     ):
       self.assertEqual(conversation.tool_event_handler, handler)
 
+  def test_create_session_with_apply_prompt_template(self):
+    with self._create_engine() as engine:
+      with engine.create_session(apply_prompt_template=True) as session:
+        self.assertIsInstance(session, litert_lm.AbstractSession)
+      with engine.create_session(apply_prompt_template=False) as session:
+        self.assertIsInstance(session, litert_lm.AbstractSession)
+
   def test_session_api_run_decode(self):
     with (
         self._create_engine() as engine,
